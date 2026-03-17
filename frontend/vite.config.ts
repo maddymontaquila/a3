@@ -16,21 +16,25 @@ export default defineConfig({
       '/api/boston': {
         target: bostonApi,
         changeOrigin: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api\/boston/, ''),
       },
       '/api/nyc': {
         target: nycApi,
         changeOrigin: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api\/nyc/, ''),
       },
       '/api/bart': {
         target: bartApi,
         changeOrigin: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api\/bart/, ''),
       },
       '/api/advisor': {
         target: advisorApi,
         changeOrigin: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api\/advisor/, ''),
       },
     },
