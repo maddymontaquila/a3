@@ -229,12 +229,24 @@ def _normalize_prediction(item: dict, included: dict[tuple[str, str], dict]) -> 
         except Exception:
             pass
 
+    # direction_id is 0 or 1 — get the human-readable destination from the route
+    direction_id = a.get("direction_id", 0)
+    route_attrs = _attr(route_inc)
+    direction_dests = route_attrs.get("direction_destinations") or []
+    direction_names = route_attrs.get("direction_names") or []
+    if direction_dests and direction_id is not None and direction_id < len(direction_dests):
+        direction = direction_dests[direction_id]
+    elif direction_names and direction_id is not None and direction_id < len(direction_names):
+        direction = direction_names[direction_id]
+    else:
+        direction = "Inbound" if direction_id == 1 else "Outbound"
+
     return {
         "routeId": route_ref.get("id"),
         "routeName": _attr(route_inc).get("long_name") or _attr(route_inc).get("short_name"),
         "stopId": stop_ref.get("id"),
         "stopName": _attr(stop_inc).get("name"),
-        "direction": a.get("direction_id"),
+        "direction": direction,
         "arrivalTime": arrival_str,
         "minutesAway": minutes_away,
         "status": a.get("status"),

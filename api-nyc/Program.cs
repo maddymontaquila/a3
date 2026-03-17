@@ -142,7 +142,7 @@ app.Run();
 
 record Route(string Id, string Name, string Color, string TextColor, string Type);
 record Prediction(string RouteId, string RouteName, string StopId, string StopName,
-    int Direction, string ArrivalTime, double MinutesAway, string Status);
+    string Direction, string ArrivalTime, double MinutesAway, string Status);
 record Alert(string Id, string Severity, string Header, string? Description,
     List<string> AffectedRoutes, ActivePeriod ActivePeriod, string UpdatedAt);
 record ActivePeriod(string? Start, string? End);
@@ -387,19 +387,20 @@ static class PredictionGenerator
             var route = SubwayData.Routes.FirstOrDefault(r => r.Id == routeId);
             if (route is null) continue;
 
+        var directions = new[] { "Uptown & The Bronx", "Downtown & Brooklyn" };
             for (var dir = 0; dir <= 1; dir++)
             {
                 var minutesAway = rng.Next(1, 15);
                 var arrivalTime = now.AddMinutes(minutesAway);
-                var status = minutesAway <= 1 ? "Approaching"
-                    : rng.NextDouble() < 0.15 ? "Delayed" : "On Time";
+                var status = minutesAway <= 1 ? "approaching"
+                    : rng.NextDouble() < 0.15 ? "delayed" : "on-time";
 
                 predictions.Add(new Prediction(
                     RouteId: route.Id,
                     RouteName: route.Name,
                     StopId: stop.Id,
                     StopName: stop.Name,
-                    Direction: dir,
+                    Direction: directions[dir],
                     ArrivalTime: arrivalTime.ToString("o"),
                     MinutesAway: minutesAway,
                     Status: status));
