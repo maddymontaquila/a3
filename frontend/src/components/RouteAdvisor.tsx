@@ -49,8 +49,8 @@ export function RouteAdvisor({ city }: RouteAdvisorProps) {
               key={route.id}
               className={`route-badge ${selectedRouteId === route.id ? 'active' : ''}`}
               style={{
-                backgroundColor: `#${route.color}`,
-                color: `#${route.textColor}`,
+                backgroundColor: route.color,
+                color: route.textColor,
                 borderColor: selectedRouteId === route.id ? '#fff' : 'transparent',
               }}
               onClick={() => {

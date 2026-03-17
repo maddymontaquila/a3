@@ -68,7 +68,7 @@ export function StopPicker({ stops, routes, value, onChange, placeholder = 'Sear
                       <span
                         key={rid}
                         className="route-badge-mini"
-                        style={{ backgroundColor: r ? `#${r.color}` : '#666', color: r ? `#${r.textColor}` : '#fff' }}
+                        style={{ backgroundColor: r ? r.color : '#666', color: r ? r.textColor : '#fff' }}
                       >
                         {r?.name ?? rid}
                       </span>

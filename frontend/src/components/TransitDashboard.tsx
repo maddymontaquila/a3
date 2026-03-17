@@ -47,8 +47,8 @@ export function TransitDashboard({ city }: TransitDashboardProps) {
                 key={route.id}
                 className={`route-badge ${selectedRouteId === route.id ? 'active' : ''}`}
                 style={{
-                  backgroundColor: `#${route.color}`,
-                  color: `#${route.textColor}`,
+                  backgroundColor: route.color,
+                  color: route.textColor,
                   borderColor: selectedRouteId === route.id ? '#fff' : 'transparent',
                 }}
                 onClick={() => {
@@ -98,7 +98,7 @@ export function TransitDashboard({ city }: TransitDashboardProps) {
                   <div key={i} className="prediction-card">
                     <span
                       className="prediction-dot"
-                      style={{ backgroundColor: route ? `#${route.color}` : '#666' }}
+                      style={{ backgroundColor: route ? route.color : '#666' }}
                     />
                     <div className="prediction-info">
                       <span className="prediction-route">{p.routeName}</span>

@@ -37,7 +37,8 @@ export function ServiceAlerts({ city }: ServiceAlertsProps) {
       ) : alerts && alerts.length > 0 ? (
         <div className="alert-list">
           {alerts.map((alert) => {
-            const cfg = SEVERITY_CONFIG[alert.severity];
+            const severity = (alert.severity?.toLowerCase() ?? 'info') as ServiceAlert['severity'];
+            const cfg = SEVERITY_CONFIG[severity] ?? SEVERITY_CONFIG.info;
             const Icon = cfg.icon;
             const isOpen = expanded.has(alert.id);
             return (
@@ -59,8 +60,8 @@ export function ServiceAlerts({ city }: ServiceAlertsProps) {
                         key={rid}
                         className="route-badge-mini"
                         style={{
-                          backgroundColor: r ? `#${r.color}` : '#444',
-                          color: r ? `#${r.textColor}` : '#fff',
+                          backgroundColor: r ? r.color : '#444',
+                          color: r ? r.textColor : '#fff',
                         }}
                       >
                         {r?.name ?? rid}
