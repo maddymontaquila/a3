@@ -51,6 +51,10 @@ if OTEL_ENDPOINT:
     trace.set_tracer_provider(provider)
     HTTPXClientInstrumentor().instrument()
 
+    # Instrument OpenAI SDK for GenAI semantic conventions
+    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+    OpenAIInstrumentor().instrument()
+
 logger = logging.getLogger(SERVICE_NAME)
 logging.basicConfig(level=logging.INFO)
 

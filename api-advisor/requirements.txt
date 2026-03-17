@@ -7,3 +7,4 @@ opentelemetry-distro
 opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-httpx
+opentelemetry-instrumentation-openai-v2
