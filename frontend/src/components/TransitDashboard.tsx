@@ -1,10 +1,13 @@
-import { useState } from 'react';
 import { Train, Clock, MapPin } from 'lucide-react';
 import { useRoutes, useStops, usePredictions } from '../hooks/useTransitData';
 import type { City, Prediction } from '../types/transit';
 
 interface TransitDashboardProps {
   city: City['id'];
+  selectedRouteId: string | null;
+  selectedStopId: string | null;
+  onSelectRoute: (id: string | null) => void;
+  onSelectStop: (id: string | null) => void;
 }
 
 function StatusBadge({ status }: { status: Prediction['status'] }) {
@@ -22,10 +25,7 @@ function StatusBadge({ status }: { status: Prediction['status'] }) {
   );
 }
 
-export function TransitDashboard({ city }: TransitDashboardProps) {
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
-
+export function TransitDashboard({ city, selectedRouteId, selectedStopId, onSelectRoute, onSelectStop }: TransitDashboardProps) {
   const { data: routes, isLoading: loadingRoutes, error: routesError } = useRoutes(city);
   const { data: stops, isLoading: loadingStops } = useStops(city, selectedRouteId);
   const { data: predictions, isLoading: loadingPredictions } = usePredictions(city, selectedStopId);
@@ -52,8 +52,7 @@ export function TransitDashboard({ city }: TransitDashboardProps) {
                   borderColor: selectedRouteId === route.id ? '#fff' : 'transparent',
                 }}
                 onClick={() => {
-                  setSelectedRouteId(route.id === selectedRouteId ? null : route.id);
-                  setSelectedStopId(null);
+                  onSelectRoute(route.id === selectedRouteId ? null : route.id);
                 }}
               >
                 {route.name}
@@ -74,7 +73,7 @@ export function TransitDashboard({ city }: TransitDashboardProps) {
                 <button
                   key={stop.id}
                   className={`stop-item ${selectedStopId === stop.id ? 'active' : ''}`}
-                  onClick={() => setSelectedStopId(stop.id === selectedStopId ? null : stop.id)}
+                  onClick={() => onSelectStop(stop.id === selectedStopId ? null : stop.id)}
                 >
                   {stop.name}
                 </button>

@@ -9,6 +9,8 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
+      gcTime: 10 * 60 * 1000,      // keep data 10 min by default
+      staleTime: 30_000,            // data is fresh for 30s
     },
   },
 });

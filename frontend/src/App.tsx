@@ -6,8 +6,28 @@ import { ServiceAlerts } from './components/ServiceAlerts';
 import { RouteAdvisor } from './components/RouteAdvisor';
 import type { City } from './types/transit';
 
+type CityId = City['id'];
+
+interface CityState {
+  routeId: string | null;
+  stopId: string | null;
+}
+
 function App() {
-  const [city, setCity] = useState<City['id']>('boston');
+  const [city, setCity] = useState<CityId>('boston');
+  const [perCity, setPerCity] = useState<Record<CityId, CityState>>({
+    boston: { routeId: null, stopId: null },
+    nyc: { routeId: null, stopId: null },
+    bart: { routeId: null, stopId: null },
+  });
+
+  const current = perCity[city];
+
+  const setRouteId = (routeId: string | null) =>
+    setPerCity((prev) => ({ ...prev, [city]: { ...prev[city], routeId, stopId: null } }));
+
+  const setStopId = (stopId: string | null) =>
+    setPerCity((prev) => ({ ...prev, [city]: { ...prev[city], stopId } }));
 
   return (
     <div className="app">
@@ -18,7 +38,13 @@ function App() {
 
       <div className="app-body">
         <main className="app-main">
-          <TransitDashboard city={city} />
+          <TransitDashboard
+            city={city}
+            selectedRouteId={current.routeId}
+            selectedStopId={current.stopId}
+            onSelectRoute={setRouteId}
+            onSelectStop={setStopId}
+          />
           <RouteAdvisor city={city} />
         </main>
         <aside className="app-sidebar">
