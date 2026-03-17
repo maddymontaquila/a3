@@ -1,40 +1,46 @@
 // Custom dashboard commands for the Aspire AppHost
 
 import { createClient } from 'redis';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execAsync = promisify(exec);
 
 /**
- * Create a flush command using the Redis resource's endpoint for host/port
- * and the container's env for the password.
+ * Create a flush command using the Redis resource's connection string.
  */
 export function createFlushCommand(redisResource: any) {
   return async (_context: any): Promise<{ success: boolean; errorMessage?: string }> => {
     try {
-      // Get host/port from the resource's endpoint (resolved at runtime)
-      const endpoint = await redisResource.primaryEndpoint.get();
-      const host = await endpoint.host.get();
-      const port = await endpoint.port.get();
+      const connStrExpr = await redisResource.connectionStringExpression.get();
+      const controller = new AbortController();
+      const connStr = await connStrExpr.getValue(controller.signal);
 
-      // Get password from the container env
-      const { stdout: nameOut } = await execAsync(
-        `docker ps --filter "name=cache-" --format "{{.Names}}" | head -1`
-      );
-      const containerName = nameOut.trim();
-      let password = '';
-      if (containerName) {
-        const { stdout: passOut } = await execAsync(
-          `docker exec ${containerName} printenv REDIS_PASSWORD`
-        );
-        password = passOut.trim();
+      if (!connStr) {
+        return { success: false, errorMessage: 'Could not resolve Redis connection string' };
       }
 
-      const url = `rediss://:${password}@${host}:${port}`;
+      // Parse the Aspire connection string — may be StackExchange format or URI
+      let url: string;
+      if (connStr.startsWith('redis://') || connStr.startsWith('rediss://')) {
+        url = connStr;
+      } else {
+        // StackExchange format: host:port,password=xxx,ssl=True
+        let host = 'localhost', port = '6379', password = '', ssl = false;
+        for (const part of connStr.split(',')) {
+          const trimmed = part.trim();
+          if (trimmed.includes('=')) {
+            const [k, v] = trimmed.split('=', 2);
+            if (k.toLowerCase() === 'password') password = v;
+            if (k.toLowerCase() === 'ssl' && v.toLowerCase() === 'true') ssl = true;
+          } else if (trimmed && !host.includes(':')) {
+            const [h, p] = trimmed.split(':');
+            host = h; if (p) port = p;
+          }
+        }
+        const scheme = ssl ? 'rediss' : 'redis';
+        url = password ? `${scheme}://:${password}@${host}:${port}` : `${scheme}://${host}:${port}`;
+      }
+
       const client = createClient({
         url,
-        socket: { rejectUnauthorized: false },
+        socket: { tls: url.startsWith('rediss'), rejectUnauthorized: false },
       });
       await client.connect();
       await client.flushAll();
