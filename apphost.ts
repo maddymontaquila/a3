@@ -3,15 +3,16 @@
 // Orchestrates a polyglot train tracker: Python, C#, Go, TypeScript
 
 import { createBuilder } from './.modules/aspire.js';
-import { flushRedisCache } from './commands.js';
+import { createFlushCommand } from './commands.js';
 
 const builder = await createBuilder();
 
 // ── Infrastructure ─────────────────────────────────────────────────
-const cache = await builder.addRedis('cache')
-  .withCommand('clear-cache', 'Clear Cache', async (_context) => {
-    return await flushRedisCache();
-  }, { commandOptions: { iconName: 'Delete', description: 'Flush all cached transit data', confirmationMessage: 'Are you sure you want to flush all cached data?' } });
+const cache = await builder.addRedis('cache');
+
+await cache.withCommand('clear-cache', 'Clear Cache', createFlushCommand(cache), {
+  commandOptions: { iconName: 'Delete', description: 'Flush all cached transit data', confirmationMessage: 'Are you sure you want to flush all cached data?' }
+});
 
 const openai = await builder.addOpenAI('openai');
 const chatModel = await openai.addModel('chat', 'gpt-4o-mini');
