@@ -25,29 +25,20 @@ const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:a
   .withUv()
   .withReference(cache)
   .withEnvironmentParameter('MBTA_API_KEY', mbtaApiKey)
-  .waitFor(cache)
-  .withCommand('health-check', 'Health Check', async (_context) => {
-    return { success: true };
-  }, { commandOptions: { iconName: 'Heart', description: 'Verify Boston API is responsive' } });
+  .waitFor(cache);
 
 // 🔷 NYC / MTA — C# file-based minimal API
 const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/Program.cs')
   .withHttpEndpoint({ env: 'ASPNETCORE_HTTP_PORTS' })
   .withReference(cache)
-  .waitFor(cache)
-  .withCommand('health-check', 'Health Check', async (_context) => {
-    return { success: true };
-  }, { commandOptions: { iconName: 'Heart', description: 'Verify NYC API is responsive' } });
+  .waitFor(cache);
 
 // 🦫 BART / Bay Area — Go (stdlib net/http)
 const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run', '.'])
   .withHttpEndpoint({ env: 'PORT' })
   .withOtlpExporter()
   .withReference(cache)
-  .waitFor(cache)
-  .withCommand('health-check', 'Health Check', async (_context) => {
-    return { success: true };
-  }, { commandOptions: { iconName: 'Heart', description: 'Verify BART API is responsive' } });
+  .waitFor(cache);
 
 // ── GenAI Route Advisor — Python + OpenAI ──────────────────────────
 // Get auto-created endpoints for service discovery
