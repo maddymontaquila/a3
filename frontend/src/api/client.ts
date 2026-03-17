@@ -1,4 +1,4 @@
-import type { TransitRoute, Prediction, ServiceAlert, Stop, RouteAdvice } from '../types/transit';
+import type { TransitRoute, Prediction, ServiceAlert, Stop } from '../types/transit';
 
 type CityId = 'boston' | 'nyc' | 'bart';
 
@@ -45,15 +45,18 @@ export async function fetchStops(city: CityId, routeId: string): Promise<Stop[]>
   return fetchJson<Stop[]>(`${getBaseUrl(city)}/stops?route=${encodeURIComponent(routeId)}`);
 }
 
-export async function getRouteAdvice(
-  city: CityId,
-  fromStopId: string,
-  toStopId: string
-): Promise<RouteAdvice> {
-  const res = await fetch(`${ADVISOR_API}/advise`, {
+export interface StatusBriefing {
+  city: string;
+  briefing: string;
+  alertCount: number;
+  generatedAt: string;
+}
+
+export async function fetchBriefing(city: CityId): Promise<StatusBriefing> {
+  const res = await fetch(`${ADVISOR_API}/briefing`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ city, fromStop: fromStopId, toStop: toStopId }),
+    body: JSON.stringify({ city }),
   });
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText}`);

@@ -3,7 +3,7 @@ import './App.css';
 import { CitySelector } from './components/CitySelector';
 import { TransitDashboard } from './components/TransitDashboard';
 import { ServiceAlerts } from './components/ServiceAlerts';
-import { RouteAdvisor } from './components/RouteAdvisor';
+import { StatusBriefing } from './components/StatusBriefing';
 import type { City } from './types/transit';
 
 type CityId = City['id'];
@@ -45,7 +45,7 @@ function App() {
             onSelectRoute={setRouteId}
             onSelectStop={setStopId}
           />
-          <RouteAdvisor city={city} />
+          <StatusBriefing city={city} />
         </main>
         <aside className="app-sidebar">
           <ServiceAlerts city={city} />
