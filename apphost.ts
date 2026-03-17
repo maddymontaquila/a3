@@ -33,7 +33,7 @@ const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:a
 
 // 🔷 NYC / MTA — C# file-based minimal API
 const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/Program.cs')
-  .withHttpEndpoint({ name: 'api', env: 'ASPNETCORE_URLS' })
+  .withHttpEndpoint({ name: 'api' })
   .withReference(cache)
   .waitFor(cache)
   .withCommand('health-check', 'Health Check', async (_context) => {
