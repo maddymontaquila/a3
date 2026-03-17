@@ -350,6 +350,37 @@ static class SubwayData
             .Where(s => s.RouteIds.Contains(id))
             .ToList();
     }
+
+    // Terminal stops per route [northbound/uptown, southbound/downtown]
+    private static readonly Dictionary<string, string[]> Terminals = new()
+    {
+        ["1"]  = new[] { "Van Cortlandt Park – 242 St", "South Ferry" },
+        ["2"]  = new[] { "Wakefield – 241 St", "Flatbush Av – Brooklyn College" },
+        ["3"]  = new[] { "Harlem – 148 St", "New Lots Av" },
+        ["4"]  = new[] { "Woodlawn", "Crown Hts – Utica Av" },
+        ["5"]  = new[] { "Eastchester – Dyre Av", "Flatbush Av – Brooklyn College" },
+        ["6"]  = new[] { "Pelham Bay Park", "Brooklyn Bridge – City Hall" },
+        ["7"]  = new[] { "Flushing – Main St", "34 St – Hudson Yards" },
+        ["A"]  = new[] { "Inwood – 207 St", "Far Rockaway" },
+        ["C"]  = new[] { "168 St", "Euclid Av" },
+        ["E"]  = new[] { "Jamaica Center", "World Trade Center" },
+        ["B"]  = new[] { "145 St", "Brighton Beach" },
+        ["D"]  = new[] { "Norwood – 205 St", "Coney Island – Stillwell Av" },
+        ["F"]  = new[] { "Jamaica – 179 St", "Coney Island – Stillwell Av" },
+        ["M"]  = new[] { "Forest Hills – 71 Av", "Middle Village – Metropolitan Av" },
+        ["G"]  = new[] { "Court Sq", "Church Av" },
+        ["J"]  = new[] { "Jamaica Center", "Broad St" },
+        ["Z"]  = new[] { "Jamaica Center", "Broad St" },
+        ["L"]  = new[] { "8 Av", "Canarsie – Rockaway Pkwy" },
+        ["N"]  = new[] { "Astoria – Ditmars Blvd", "Coney Island – Stillwell Av" },
+        ["Q"]  = new[] { "96 St", "Coney Island – Stillwell Av" },
+        ["R"]  = new[] { "Forest Hills – 71 Av", "Bay Ridge – 95 St" },
+        ["W"]  = new[] { "Astoria – Ditmars Blvd", "Whitehall St" },
+        ["S"]  = new[] { "Grand Central – 42 St", "Times Sq – 42 St" },
+    };
+
+    public static string[] GetTerminals(string routeId) =>
+        Terminals.TryGetValue(routeId, out var t) ? t : new[] { "Uptown", "Downtown" };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -387,7 +418,7 @@ static class PredictionGenerator
             var route = SubwayData.Routes.FirstOrDefault(r => r.Id == routeId);
             if (route is null) continue;
 
-        var directions = new[] { "Uptown & The Bronx", "Downtown & Brooklyn" };
+            var terminals = SubwayData.GetTerminals(routeId);
             for (var dir = 0; dir <= 1; dir++)
             {
                 var minutesAway = rng.Next(1, 15);
@@ -400,7 +431,7 @@ static class PredictionGenerator
                     RouteName: route.Name,
                     StopId: stop.Id,
                     StopName: stop.Name,
-                    Direction: directions[dir],
+                    Direction: terminals[dir],
                     ArrivalTime: arrivalTime.ToString("o"),
                     MinutesAway: minutesAway,
                     Status: status));

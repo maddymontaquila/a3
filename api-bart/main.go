@@ -570,7 +570,7 @@ func handlePredictions(w http.ResponseWriter, r *http.Request) {
 				p := Prediction{
 					StopID:    stn.Abbr,
 					StopName:  stn.Name,
-					Direction: est.Direction,
+					Direction: etd.Destination, // terminal stop name
 					RouteName: etd.Destination,
 					RouteID:   strings.ToLower(est.Color),
 				}
