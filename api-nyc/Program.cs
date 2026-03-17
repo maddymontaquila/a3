@@ -54,6 +54,11 @@ if (!string.IsNullOrEmpty(redisConn))
 
 builder.Services.AddSingleton<CacheService>();
 builder.Services.AddHttpClient("mta", c => c.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddHttpClient("subwayinfo", c =>
+{
+    c.BaseAddress = new Uri("https://subwayinfo.nyc");
+    c.Timeout = TimeSpan.FromSeconds(15);
+});
 
 var app = builder.Build();
 app.UseCors();
@@ -82,14 +87,57 @@ app.MapGet("/routes", async (CacheService cache) =>
 });
 
 // ── Predictions ────────────────────────────────────────────────────
-app.MapGet("/predictions", async (string stop, CacheService cache) =>
+app.MapGet("/predictions", async (string stop, CacheService cache, IHttpClientFactory httpFactory, ILogger<Program> log) =>
 {
     var key = CacheService.Key("predictions", stop);
     var cached = await cache.GetAsync<List<Prediction>>(key);
     if (cached is not null) return Results.Json(cached, jsonOpts);
 
-    // Generate realistic mock predictions for the requested stop
-    var result = PredictionGenerator.Generate(stop);
+    var result = new List<Prediction>();
+    try
+    {
+        var client = httpFactory.CreateClient("subwayinfo");
+        var resp = await client.GetAsync($"/api/arrivals?station_id={Uri.EscapeDataString(stop)}&limit=20");
+        if (resp.IsSuccessStatusCode)
+        {
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var stationId = root.TryGetProperty("stationId", out var sid) ? sid.GetString() ?? stop : stop;
+            var stationName = root.TryGetProperty("stationName", out var sn) ? sn.GetString() ?? "" : "";
+
+            if (root.TryGetProperty("arrivals", out var arrivals))
+            {
+                var routeLookup = SubwayData.Routes.ToDictionary(r => r.Id, r => r.Name);
+                foreach (var arr in arrivals.EnumerateArray())
+                {
+                    var line = arr.TryGetProperty("line", out var l) ? l.GetString() ?? "" : "";
+                    var headsign = arr.TryGetProperty("headsign", out var h) ? h.GetString() ?? "" : "";
+                    var arrivalTime = arr.TryGetProperty("arrivalTime", out var at) ? at.GetString() ?? "" : "";
+                    var minutesAway = arr.TryGetProperty("minutesAway", out var ma) ? ma.GetDouble() : 0;
+
+                    var routeName = routeLookup.TryGetValue(line, out var rn) ? rn : line;
+                    var status = minutesAway <= 1 ? "approaching" : "on-time";
+
+                    result.Add(new Prediction(
+                        RouteId: line,
+                        RouteName: routeName,
+                        StopId: stationId,
+                        StopName: stationName,
+                        Direction: headsign,
+                        ArrivalTime: arrivalTime,
+                        MinutesAway: minutesAway,
+                        Status: status));
+                }
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Failed to fetch predictions from SubwayInfo.nyc for stop {Stop}", stop);
+    }
+
     await cache.SetAsync(key, result, TimeSpan.FromSeconds(30));
     return Results.Json(result, jsonOpts);
 });
@@ -123,13 +171,52 @@ app.MapGet("/alerts", async (CacheService cache, IHttpClientFactory httpFactory,
 });
 
 // ── Stops ──────────────────────────────────────────────────────────
-app.MapGet("/stops", async (string route, CacheService cache) =>
+app.MapGet("/stops", async (string? route, CacheService cache, IHttpClientFactory httpFactory, ILogger<Program> log) =>
 {
-    var key = CacheService.Key("stops", route);
+    var routeKey = route ?? "__all__";
+    var key = CacheService.Key("stops", routeKey);
     var cached = await cache.GetAsync<List<Stop>>(key);
     if (cached is not null) return Results.Json(cached, jsonOpts);
 
-    var result = SubwayData.GetStopsForRoute(route);
+    var result = new List<Stop>();
+    try
+    {
+        var client = httpFactory.CreateClient("subwayinfo");
+        var url = string.IsNullOrWhiteSpace(route)
+            ? "/api/stations"
+            : $"/api/stations?line={Uri.EscapeDataString(route)}";
+        var resp = await client.GetAsync(url);
+        if (resp.IsSuccessStatusCode)
+        {
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            foreach (var station in doc.RootElement.EnumerateArray())
+            {
+                var id = station.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                var name = station.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+                var lat = station.TryGetProperty("lat", out var latEl) ? latEl.GetDouble() : 0;
+                var lon = station.TryGetProperty("lon", out var lonEl) ? lonEl.GetDouble() : 0;
+                var lines = new List<string>();
+                if (station.TryGetProperty("lines", out var linesEl))
+                {
+                    foreach (var line in linesEl.EnumerateArray())
+                    {
+                        var lineStr = line.GetString();
+                        if (!string.IsNullOrEmpty(lineStr)) lines.Add(lineStr);
+                    }
+                }
+                result.Add(new Stop(id, name, lat, lon, lines));
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Failed to fetch stations from SubwayInfo.nyc — falling back to local data");
+        result = string.IsNullOrWhiteSpace(route)
+            ? SubwayData.Routes.SelectMany(r => SubwayData.GetStopsForRoute(r.Id)).DistinctBy(s => s.Id).ToList()
+            : SubwayData.GetStopsForRoute(route);
+    }
+
     await cache.SetAsync(key, result, TimeSpan.FromSeconds(3600));
     return Results.Json(result, jsonOpts);
 });
@@ -351,95 +438,6 @@ static class SubwayData
             .ToList();
     }
 
-    // Terminal stops per route [northbound/uptown, southbound/downtown]
-    private static readonly Dictionary<string, string[]> Terminals = new()
-    {
-        ["1"]  = new[] { "Van Cortlandt Park – 242 St", "South Ferry" },
-        ["2"]  = new[] { "Wakefield – 241 St", "Flatbush Av – Brooklyn College" },
-        ["3"]  = new[] { "Harlem – 148 St", "New Lots Av" },
-        ["4"]  = new[] { "Woodlawn", "Crown Hts – Utica Av" },
-        ["5"]  = new[] { "Eastchester – Dyre Av", "Flatbush Av – Brooklyn College" },
-        ["6"]  = new[] { "Pelham Bay Park", "Brooklyn Bridge – City Hall" },
-        ["7"]  = new[] { "Flushing – Main St", "34 St – Hudson Yards" },
-        ["A"]  = new[] { "Inwood – 207 St", "Far Rockaway" },
-        ["C"]  = new[] { "168 St", "Euclid Av" },
-        ["E"]  = new[] { "Jamaica Center", "World Trade Center" },
-        ["B"]  = new[] { "145 St", "Brighton Beach" },
-        ["D"]  = new[] { "Norwood – 205 St", "Coney Island – Stillwell Av" },
-        ["F"]  = new[] { "Jamaica – 179 St", "Coney Island – Stillwell Av" },
-        ["M"]  = new[] { "Forest Hills – 71 Av", "Middle Village – Metropolitan Av" },
-        ["G"]  = new[] { "Court Sq", "Church Av" },
-        ["J"]  = new[] { "Jamaica Center", "Broad St" },
-        ["Z"]  = new[] { "Jamaica Center", "Broad St" },
-        ["L"]  = new[] { "8 Av", "Canarsie – Rockaway Pkwy" },
-        ["N"]  = new[] { "Astoria – Ditmars Blvd", "Coney Island – Stillwell Av" },
-        ["Q"]  = new[] { "96 St", "Coney Island – Stillwell Av" },
-        ["R"]  = new[] { "Forest Hills – 71 Av", "Bay Ridge – 95 St" },
-        ["W"]  = new[] { "Astoria – Ditmars Blvd", "Whitehall St" },
-        ["S"]  = new[] { "Grand Central – 42 St", "Times Sq – 42 St" },
-    };
-
-    public static string[] GetTerminals(string routeId) =>
-        Terminals.TryGetValue(routeId, out var t) ? t : new[] { "Uptown", "Downtown" };
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Prediction generator (realistic mock — real-time needs GTFS-RT)
-// ═══════════════════════════════════════════════════════════════════
-
-static class PredictionGenerator
-{
-    private static readonly string[] Statuses = { "On Time", "Delayed", "Approaching" };
-
-    public static List<Prediction> Generate(string stopId)
-    {
-        var stop = SubwayData.GetStopsForRoute("1") // search all stops
-            .Concat(SubwayData.GetStopsForRoute("4"))
-            .Concat(SubwayData.GetStopsForRoute("7"))
-            .Concat(SubwayData.GetStopsForRoute("A"))
-            .Concat(SubwayData.GetStopsForRoute("B"))
-            .Concat(SubwayData.GetStopsForRoute("G"))
-            .Concat(SubwayData.GetStopsForRoute("J"))
-            .Concat(SubwayData.GetStopsForRoute("L"))
-            .Concat(SubwayData.GetStopsForRoute("N"))
-            .Concat(SubwayData.GetStopsForRoute("S"))
-            .DistinctBy(s => s.Id)
-            .FirstOrDefault(s => s.Id.Equals(stopId, StringComparison.OrdinalIgnoreCase));
-
-        if (stop is null)
-            return new List<Prediction>();
-
-        var now = DateTimeOffset.UtcNow;
-        var rng = new Random(now.Minute * 60 + now.Second / 10); // semi-stable within 10s windows
-        var predictions = new List<Prediction>();
-
-        foreach (var routeId in stop.RouteIds)
-        {
-            var route = SubwayData.Routes.FirstOrDefault(r => r.Id == routeId);
-            if (route is null) continue;
-
-            var terminals = SubwayData.GetTerminals(routeId);
-            for (var dir = 0; dir <= 1; dir++)
-            {
-                var minutesAway = rng.Next(1, 15);
-                var arrivalTime = now.AddMinutes(minutesAway);
-                var status = minutesAway <= 1 ? "approaching"
-                    : rng.NextDouble() < 0.15 ? "delayed" : "on-time";
-
-                predictions.Add(new Prediction(
-                    RouteId: route.Id,
-                    RouteName: route.Name,
-                    StopId: stop.Id,
-                    StopName: stop.Name,
-                    Direction: terminals[dir],
-                    ArrivalTime: arrivalTime.ToString("o"),
-                    MinutesAway: minutesAway,
-                    Status: status));
-            }
-        }
-
-        return predictions.OrderBy(p => p.MinutesAway).ToList();
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
