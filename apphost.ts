@@ -66,7 +66,6 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
 const advisorEndpoint = await advisor.getEndpoint('http');
 
 await builder.addViteApp('frontend', './frontend')
-  .withHttpEndpoint({ env: 'PORT' })
   .withEnvironmentEndpoint('services__api-boston__http__0', bostonEndpoint)
   .withEnvironmentEndpoint('services__api-nyc__http__0', nycEndpoint)
   .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint)
