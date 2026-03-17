@@ -30,6 +30,19 @@ export function TransitDashboard({ city, selectedRouteId, selectedStopId, onSele
   const { data: stops, isLoading: loadingStops } = useStops(city, selectedRouteId);
   const { data: predictions, isLoading: loadingPredictions } = usePredictions(city, selectedStopId);
 
+  // Filter predictions to match the selected route
+  const selectedRoute = routes?.find((r) => r.id === selectedRouteId);
+  const filteredPredictions = predictions?.filter((p) => {
+    if (!selectedRoute) return true;
+    // For BART: route names are "X to Y" — match predictions heading toward Y
+    if (selectedRoute.name.includes(' to ')) {
+      const destination = selectedRoute.name.split(' to ').pop()!;
+      return p.direction.includes(destination) || p.routeName.includes(destination);
+    }
+    // For Boston/NYC: match by routeId
+    return p.routeId === selectedRouteId;
+  });
+
   if (routesError) {
     return <div className="error-state">Failed to load routes. Is the {city} API running?</div>;
   }
@@ -89,9 +102,9 @@ export function TransitDashboard({ city, selectedRouteId, selectedStopId, onSele
           <h2><Clock size={18} /> Predictions <span className="auto-refresh">auto-refreshes every 15s</span></h2>
           {loadingPredictions ? (
             <div className="loading">Loading predictions...</div>
-          ) : predictions && predictions.length > 0 ? (
+          ) : filteredPredictions && filteredPredictions.length > 0 ? (
             <div className="prediction-list">
-              {predictions.map((p, i) => {
+              {filteredPredictions.map((p, i) => {
                 const route = routes?.find((r) => r.id === p.routeId);
                 return (
                   <div key={i} className="prediction-card">
