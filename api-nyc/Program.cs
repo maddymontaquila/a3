@@ -541,9 +541,17 @@ static class AlertParser
                     }
                 }
 
-                var severity = "INFO";
+                var severity = "info";
                 if (alertEl.TryGetProperty("severity_level", out var sev))
-                    severity = sev.GetString() ?? "INFO";
+                {
+                    var sevStr = (sev.GetString() ?? "INFO").ToUpperInvariant();
+                    severity = sevStr switch
+                    {
+                        "SEVERE" or "CRITICAL" => "severe",
+                        "WARNING" => "warning",
+                        _ => "info"
+                    };
+                }
 
                 var affectedRoutes = new List<string>();
                 if (alertEl.TryGetProperty("informed_entity", out var informed))

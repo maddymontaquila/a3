@@ -22,7 +22,7 @@ export interface Prediction {
 
 export interface ServiceAlert {
   id: string;
-  severity: "info" | "warning" | "severe";
+  severity: "info" | "warning" | "severe" | string | number;
   header: string;
   description: string;
   affectedRoutes: string[];

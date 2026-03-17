@@ -37,7 +37,13 @@ export function ServiceAlerts({ city }: ServiceAlertsProps) {
       ) : alerts && alerts.length > 0 ? (
         <div className="alert-list">
           {alerts.map((alert) => {
-            const severity = (alert.severity?.toLowerCase() ?? 'info') as ServiceAlert['severity'];
+            const rawSev = alert.severity;
+            const severity: 'info' | 'warning' | 'severe' =
+              typeof rawSev === 'number'
+                ? rawSev >= 7 ? 'severe' : rawSev >= 4 ? 'warning' : 'info'
+                : typeof rawSev === 'string'
+                  ? (rawSev.toLowerCase() as 'info' | 'warning' | 'severe')
+                  : 'info';
             const cfg = SEVERITY_CONFIG[severity] ?? SEVERITY_CONFIG.info;
             const Icon = cfg.icon;
             const isOpen = expanded.has(alert.id);

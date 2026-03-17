@@ -241,9 +241,16 @@ def _normalize_alert(item: dict) -> dict:
         p = periods[0]
         active_period = {"start": p.get("start"), "end": p.get("end")}
 
+    # Map MBTA numeric severity to our string format
+    raw_sev = a.get("severity", 0)
+    if isinstance(raw_sev, int):
+        severity = "severe" if raw_sev >= 7 else "warning" if raw_sev >= 4 else "info"
+    else:
+        severity = str(raw_sev).lower() if raw_sev else "info"
+
     return {
         "id": item["id"],
-        "severity": a.get("severity"),
+        "severity": severity,
         "header": a.get("header"),
         "description": a.get("description"),
         "affectedRoutes": affected,
@@ -322,7 +329,7 @@ async def list_alerts():
     if cached is not None:
         return cached
 
-    data = await _mbta_get("/alerts", {"filter[activity]": "BOARD,EXIT,RIDE"})
+    data = await _mbta_get("/alerts", {"filter[route_type]": "0,1"})
     result = [_normalize_alert(item) for item in data.get("data", [])]
     _cache_set(cache_key, result, CACHE_TTL_ALERTS)
     return result
