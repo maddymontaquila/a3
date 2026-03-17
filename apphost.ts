@@ -23,6 +23,7 @@ const mbtaApiKey = await builder.addParameter('mbta-api-key', { secret: true });
 // 🐍 Boston / MBTA — Python (FastAPI + Uvicorn)
 const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:app')
   .withUv()
+  .withHttpEndpoint({ name: 'proxy' })
   .withReference(cache)
   .withEnvironmentParameter('MBTA_API_KEY', mbtaApiKey)
   .waitFor(cache)
@@ -50,7 +51,7 @@ const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run',
 
 // ── GenAI Route Advisor — Python + OpenAI ──────────────────────────
 // Get auto-created endpoints for service discovery
-const bostonEndpoint = await boston.getEndpoint('http');
+const bostonEndpoint = await boston.getEndpoint('proxy');
 const nycEndpoint = await nyc.getEndpoint('http');
 const bartEndpoint = await bart.getEndpoint('http');
 
