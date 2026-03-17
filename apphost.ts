@@ -51,6 +51,7 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
   .withUv()
   .withReference(cache)
   .withReference(chatModel)
+  .withEnvironment('OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT', 'true')
   .withEnvironmentEndpoint('services__api-boston__http__0', bostonEndpoint)
   .withEnvironmentEndpoint('services__api-nyc__http__0', nycEndpoint)
   .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint)
