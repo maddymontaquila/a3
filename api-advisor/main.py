@@ -105,7 +105,11 @@ def _get_redis() -> redis.Redis | None:
     try:
         # Aspire may provide redis:// URI or StackExchange format (host:port,password=xxx)
         if conn.startswith("redis://") or conn.startswith("rediss://"):
-            return redis.Redis.from_url(conn, decode_responses=True, socket_connect_timeout=2)
+            use_ssl = conn.startswith("rediss://")
+            return redis.Redis.from_url(
+                conn, decode_responses=True, socket_connect_timeout=2,
+                ssl_cert_reqs=None if use_ssl else None,
+            )
         else:
             host, port, password = "localhost", 6379, None
             for part in conn.split(","):

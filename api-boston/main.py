@@ -30,11 +30,23 @@ if otlp_endpoint:
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        resource = Resource.create({"service.name": "api-boston"})
+        service_name = os.environ.get("OTEL_SERVICE_NAME", "api-boston")
+        resource = Resource.create({"service.name": service_name})
         provider = TracerProvider(resource=resource)
-        provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True))
-        )
+
+        # Use Aspire-provided cert if available, otherwise try insecure
+        cert_path = os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE")
+        if cert_path and os.path.exists(cert_path):
+            import grpc
+            with open(cert_path, "rb") as f:
+                credentials = grpc.ssl_channel_credentials(root_certificates=f.read())
+            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, credentials=credentials)
+        elif otlp_endpoint.startswith("https"):
+            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=False)
+        else:
+            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
+
+        provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         HTTPXClientInstrumentor().instrument()
         _otel_fastapi_instrumentor = FastAPIInstrumentor()
@@ -120,8 +132,12 @@ def _get_redis():
                 elif part and host == "localhost":
                     host = part
 
+        # Detect TLS (rediss:// scheme)
+        use_ssl = conn_str.startswith("rediss://")
+
         _redis_client = _redis_mod.Redis(
-            host=host, port=port, password=password, decode_responses=True, socket_timeout=2
+            host=host, port=port, password=password, decode_responses=True, socket_timeout=2,
+            ssl=use_ssl, ssl_cert_reqs=None,  # skip cert verify for Aspire dev certs
         )
         _redis_client.ping()
         logger.info("Connected to Redis at %s:%s", host, port)

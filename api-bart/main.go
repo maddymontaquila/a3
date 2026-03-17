@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/credentials"
 )
 
 // ---------------------------------------------------------------------------
@@ -234,6 +236,17 @@ func initTracer(ctx context.Context) func(context.Context) {
 		opts = append(opts, otlptracegrpc.WithInsecure())
 	} else if strings.HasPrefix(endpoint, "https://") {
 		endpoint = strings.TrimPrefix(endpoint, "https://")
+		// Use Aspire-provided cert or skip verification for dev
+		certPath := os.Getenv("OTEL_EXPORTER_OTLP_CERTIFICATE")
+		if certPath != "" {
+			if creds, err := credentials.NewClientTLSFromFile(certPath, ""); err == nil {
+				opts = append(opts, otlptracegrpc.WithTLSCredentials(creds))
+			} else {
+				opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+			}
+		} else {
+			opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+		}
 	} else {
 		opts = append(opts, otlptracegrpc.WithInsecure())
 	}
@@ -246,8 +259,13 @@ func initTracer(ctx context.Context) func(context.Context) {
 		return func(context.Context) {}
 	}
 
+	serviceName := os.Getenv("OTEL_SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "api-bart"
+	}
+
 	res, _ := resource.New(ctx,
-		resource.WithAttributes(semconv.ServiceName("api-bart")),
+		resource.WithAttributes(semconv.ServiceName(serviceName)),
 	)
 
 	tp := sdktrace.NewTracerProvider(
@@ -279,6 +297,10 @@ func initRedis() {
 
 	if strings.HasPrefix(connStr, "redis://") || strings.HasPrefix(connStr, "rediss://") {
 		opts, err = redis.ParseURL(connStr)
+		// For rediss:// (TLS), skip cert verification for Aspire dev certs
+		if err == nil && opts.TLSConfig != nil {
+			opts.TLSConfig.InsecureSkipVerify = true
+		}
 	} else {
 		// Parse StackExchange.Redis format: host:port,password=xxx,ssl=false,...
 		opts = &redis.Options{}

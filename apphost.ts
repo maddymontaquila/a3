@@ -42,6 +42,7 @@ const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/Program.cs')
 // 🦫 BART / Bay Area — Go (stdlib net/http)
 const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run', '.'])
   .withHttpEndpoint({ env: 'PORT' })
+  .withOtlpExporter()
   .withReference(cache)
   .waitFor(cache)
   .withCommand('health-check', 'Health Check', async (_context) => {
