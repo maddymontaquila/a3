@@ -93,10 +93,33 @@ def _get_redis():
     try:
         import redis as _redis_mod
 
-        parsed = urlparse(conn_str)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 6379
-        password = parsed.password or None
+        # Aspire may provide Redis connection in different formats:
+        #   redis://:password@host:port  (URI format)
+        #   host:port,password=xxx       (StackExchange.Redis format)
+        if conn_str.startswith("redis://") or conn_str.startswith("rediss://"):
+            parsed = urlparse(conn_str)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 6379
+            password = parsed.password or None
+        else:
+            host, port, password = "localhost", 6379, None
+            parts = conn_str.split(",")
+            for part in parts:
+                part = part.strip()
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    if k.lower() == "password":
+                        password = v
+                elif ":" in part and host == "localhost":
+                    h, p = part.rsplit(":", 1)
+                    host = h
+                    try:
+                        port = int(p)
+                    except ValueError:
+                        pass
+                elif part and host == "localhost":
+                    host = part
+
         _redis_client = _redis_mod.Redis(
             host=host, port=port, password=password, decode_responses=True, socket_timeout=2
         )

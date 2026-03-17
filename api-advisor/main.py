@@ -103,7 +103,25 @@ def _get_redis() -> redis.Redis | None:
     if not conn:
         return None
     try:
-        return redis.Redis.from_url(conn, decode_responses=True, socket_connect_timeout=2)
+        # Aspire may provide redis:// URI or StackExchange format (host:port,password=xxx)
+        if conn.startswith("redis://") or conn.startswith("rediss://"):
+            return redis.Redis.from_url(conn, decode_responses=True, socket_connect_timeout=2)
+        else:
+            host, port, password = "localhost", 6379, None
+            for part in conn.split(","):
+                part = part.strip()
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    if k.lower() == "password":
+                        password = v
+                elif ":" in part and host == "localhost":
+                    h, p = part.rsplit(":", 1)
+                    host = h
+                    try:
+                        port = int(p)
+                    except ValueError:
+                        pass
+            return redis.Redis(host=host, port=port, password=password, decode_responses=True, socket_connect_timeout=2)
     except Exception:
         logger.warning("Failed to create Redis client", exc_info=True)
         return None

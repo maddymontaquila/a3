@@ -271,7 +271,36 @@ func initRedis() {
 		return
 	}
 
-	opts, err := redis.ParseURL(connStr)
+	// Aspire may provide Redis connection in different formats:
+	//   redis://:password@host:port  (URI format)
+	//   host:port,password=xxx       (StackExchange.Redis format)
+	var opts *redis.Options
+	var err error
+
+	if strings.HasPrefix(connStr, "redis://") || strings.HasPrefix(connStr, "rediss://") {
+		opts, err = redis.ParseURL(connStr)
+	} else {
+		// Parse StackExchange.Redis format: host:port,password=xxx,ssl=false,...
+		opts = &redis.Options{}
+		parts := strings.Split(connStr, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if kv := strings.SplitN(part, "=", 2); len(kv) == 2 {
+				switch strings.ToLower(kv[0]) {
+				case "password":
+					opts.Password = kv[1]
+				case "ssl":
+					// ignore for now
+				}
+			} else if part != "" && opts.Addr == "" {
+				opts.Addr = part
+			}
+		}
+		if opts.Addr == "" {
+			opts.Addr = "localhost:6379"
+		}
+	}
+
 	if err != nil {
 		log.Printf("Failed to parse Redis URL: %v", err)
 		return
