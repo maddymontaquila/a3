@@ -28,7 +28,7 @@ export async function fetchRoutes(city: CityId): Promise<TransitRoute[]> {
 }
 
 export async function fetchPredictions(city: CityId, stopId: string): Promise<Prediction[]> {
-  return fetchJson<Prediction[]>(`${getBaseUrl(city)}/predictions?stopId=${encodeURIComponent(stopId)}`);
+  return fetchJson<Prediction[]>(`${getBaseUrl(city)}/predictions?stop=${encodeURIComponent(stopId)}`);
 }
 
 export async function fetchAlerts(city: CityId): Promise<ServiceAlert[]> {
@@ -36,7 +36,7 @@ export async function fetchAlerts(city: CityId): Promise<ServiceAlert[]> {
 }
 
 export async function fetchStops(city: CityId, routeId: string): Promise<Stop[]> {
-  return fetchJson<Stop[]>(`${getBaseUrl(city)}/stops?routeId=${encodeURIComponent(routeId)}`);
+  return fetchJson<Stop[]>(`${getBaseUrl(city)}/stops?route=${encodeURIComponent(routeId)}`);
 }
 
 export async function getRouteAdvice(
@@ -44,7 +44,13 @@ export async function getRouteAdvice(
   fromStopId: string,
   toStopId: string
 ): Promise<RouteAdvice> {
-  return fetchJson<RouteAdvice>(
-    `${ADVISOR_API}/advice?city=${encodeURIComponent(city)}&from=${encodeURIComponent(fromStopId)}&to=${encodeURIComponent(toStopId)}`
-  );
+  const res = await fetch(`${ADVISOR_API}/advise`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ city, fromStop: fromStopId, toStop: toStopId }),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
 }

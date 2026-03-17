@@ -1,5 +1,5 @@
 // A3 — All Aboard Aspire 🚂
-// TypeScript AppHost for AspireConf Keynote Demo
+// TypeScript AppHost for AspireConf Keynote
 // Orchestrates a polyglot train tracker: Python, C#, Go, TypeScript
 
 import { createBuilder } from './.modules/aspire.js';
