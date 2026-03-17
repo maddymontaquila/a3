@@ -23,7 +23,6 @@ const mbtaApiKey = await builder.addParameter('mbta-api-key', { secret: true });
 // 🐍 Boston / MBTA — Python (FastAPI + Uvicorn)
 const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:app')
   .withUv()
-  .withHttpEndpoint({ name: 'proxy' })
   .withReference(cache)
   .withEnvironmentParameter('MBTA_API_KEY', mbtaApiKey)
   .waitFor(cache)
@@ -51,7 +50,7 @@ const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run',
 
 // ── GenAI Route Advisor — Python + OpenAI ──────────────────────────
 // Get auto-created endpoints for service discovery
-const bostonEndpoint = await boston.getEndpoint('proxy');
+const bostonEndpoint = await boston.getEndpoint('http');
 const nycEndpoint = await nyc.getEndpoint('http');
 const bartEndpoint = await bart.getEndpoint('http');
 
@@ -66,6 +65,7 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
 
 // ── Frontend — Vite + React + TypeScript ───────────────────────────
 await builder.addViteApp('frontend', './frontend')
+  .withEnvironment('NODE_TLS_REJECT_UNAUTHORIZED', '0')
   .withEnvironmentEndpoint('services__api-boston__http__0', bostonEndpoint)
   .withEnvironmentEndpoint('services__api-nyc__http__0', nycEndpoint)
   .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint);
