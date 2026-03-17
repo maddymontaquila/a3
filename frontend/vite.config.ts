@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import https from 'node:https'
 
 // Aspire injects service URLs as env vars like services__api-boston__http__0
 const bostonApi = process.env['services__api-boston__http__0'] || 'http://localhost:5180'
@@ -8,6 +9,9 @@ const bartApi = process.env['services__api-bart__http__0'] || 'http://localhost:
 const advisorApi = process.env['services__api-advisor__http__0'] || 'http://localhost:5183'
 
 console.log('[vite proxy] Boston:', bostonApi, '| NYC:', nycApi, '| BART:', bartApi, '| Advisor:', advisorApi)
+
+// Agent that skips cert verification and forces HTTP/1.1 (no ALPN/H2)
+const httpsAgent = new https.Agent({ rejectUnauthorized: false, ALPNProtocols: ['http/1.1'] })
 
 export default defineConfig({
   plugins: [react()],
@@ -18,6 +22,7 @@ export default defineConfig({
         target: bostonApi,
         changeOrigin: true,
         secure: false,
+        agent: bostonApi.startsWith('https') ? httpsAgent : undefined,
         rewrite: (path) => path.replace(/^\/api\/boston/, ''),
       },
       '/api/nyc': {
@@ -36,6 +41,7 @@ export default defineConfig({
         target: advisorApi,
         changeOrigin: true,
         secure: false,
+        agent: advisorApi.startsWith('https') ? httpsAgent : undefined,
         rewrite: (path) => path.replace(/^\/api\/advisor/, ''),
       },
     },
