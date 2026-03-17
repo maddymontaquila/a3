@@ -1,0 +1,13 @@
+{
+  "appHostPath": "../apphost.ts",
+  "language": "typescript/nodejs",
+  "channel": "daily",
+  "sdkVersion": "13.3.0-preview.1.26161.2",
+  "packages": {
+    "Aspire.Hosting.Redis": "13.3.0-preview.1.26163.4",
+    "CommunityToolkit.Aspire.Hosting.Golang": "13.2.1-beta.532",
+    "Aspire.Hosting.JavaScript": "13.3.0-preview.1.26163.4",
+    "Aspire.Hosting.Python": "13.3.0-preview.1.26163.4",
+    "Aspire.Hosting.OpenAI": "13.3.0-preview.1.26163.4"
+  }
+}

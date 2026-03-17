@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.modules/
+__pycache__/
+*.pyc
+.venv/
+dist/
+.next/
+
+# Build outputs
+api-bart/api-bart
+*.exe
+*.dll
+*.so
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Aspire
+.aspire/logs/
+*.log
+
+# Redis
+dump.rdb
