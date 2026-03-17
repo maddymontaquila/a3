@@ -23,7 +23,6 @@ const mbtaApiKey = await builder.addParameter('mbta-api-key', { secret: true });
 // 🐍 Boston / MBTA — Python (FastAPI + Uvicorn)
 const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:app')
   .withUv()
-  .withHttpEndpoint({ name: 'api', env: 'PORT' })
   .withReference(cache)
   .withEnvironmentParameter('MBTA_API_KEY', mbtaApiKey)
   .waitFor(cache)
@@ -33,7 +32,6 @@ const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:a
 
 // 🔷 NYC / MTA — C# file-based minimal API
 const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/Program.cs')
-  .withHttpEndpoint({ name: 'api' })
   .withReference(cache)
   .waitFor(cache)
   .withCommand('health-check', 'Health Check', async (_context) => {
@@ -42,7 +40,7 @@ const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/Program.cs')
 
 // 🦫 BART / Bay Area — Go (stdlib net/http)
 const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run', '.'])
-  .withHttpEndpoint({ name: 'api', env: 'PORT' })
+  .withHttpEndpoint({ env: 'PORT' })
   .withReference(cache)
   .waitFor(cache)
   .withCommand('health-check', 'Health Check', async (_context) => {
@@ -50,13 +48,13 @@ const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run',
   }, { commandOptions: { iconName: 'Heart', description: 'Verify BART API is responsive' } });
 
 // ── GenAI Route Advisor — Python + OpenAI ──────────────────────────
-const bostonEndpoint = await boston.getEndpoint('api');
-const nycEndpoint = await nyc.getEndpoint('api');
-const bartEndpoint = await bart.getEndpoint('api');
+// Get auto-created endpoints for service discovery
+const bostonEndpoint = await boston.getEndpoint('http');
+const nycEndpoint = await nyc.getEndpoint('http');
+const bartEndpoint = await bart.getEndpoint('http');
 
 const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'main:app')
   .withUv()
-  .withHttpEndpoint({ name: 'api', env: 'PORT' })
   .withReference(cache)
   .withReference(chatModel)
   .withEnvironmentEndpoint('services__api-boston__http__0', bostonEndpoint)
@@ -65,10 +63,9 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
   .waitFor(cache);
 
 // ── Frontend — Vite + React + TypeScript ───────────────────────────
-const advisorEndpoint = await advisor.getEndpoint('api');
+const advisorEndpoint = await advisor.getEndpoint('http');
 
 await builder.addViteApp('frontend', './frontend')
-  .withHttpEndpoint({ name: 'app', env: 'PORT' })
   .withEnvironmentEndpoint('services__api-boston__http__0', bostonEndpoint)
   .withEnvironmentEndpoint('services__api-nyc__http__0', nycEndpoint)
   .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint)
