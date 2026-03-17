@@ -32,6 +32,7 @@ const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:a
 
 // 🔷 NYC / MTA — C# file-based minimal API
 const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/Program.cs')
+  .withHttpEndpoint({ env: 'ASPNETCORE_HTTP_PORTS' })
   .withReference(cache)
   .waitFor(cache)
   .withCommand('health-check', 'Health Check', async (_context) => {
@@ -63,12 +64,9 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
   .waitFor(cache);
 
 // ── Frontend — Vite + React + TypeScript ───────────────────────────
-const advisorEndpoint = await advisor.getEndpoint('http');
-
 await builder.addViteApp('frontend', './frontend')
   .withEnvironmentEndpoint('services__api-boston__http__0', bostonEndpoint)
   .withEnvironmentEndpoint('services__api-nyc__http__0', nycEndpoint)
-  .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint)
-  .withEnvironmentEndpoint('services__api-advisor__http__0', advisorEndpoint);
+  .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint);
 
 await builder.build().run();
