@@ -22,7 +22,7 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 
 OTEL_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-SERVICE_NAME = "api-advisor"
+SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "api-advisor")
 
 if OTEL_ENDPOINT:
     from opentelemetry import trace
@@ -35,7 +35,19 @@ if OTEL_ENDPOINT:
 
     resource = Resource.create({"service.name": SERVICE_NAME})
     provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True)))
+
+    cert_path = os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE")
+    if cert_path and os.path.exists(cert_path):
+        import grpc
+        with open(cert_path, "rb") as f:
+            creds = grpc.ssl_channel_credentials(root_certificates=f.read())
+        exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, credentials=creds)
+    elif OTEL_ENDPOINT.startswith("https"):
+        exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=False)
+    else:
+        exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True)
+
+    provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
     HTTPXClientInstrumentor().instrument()
 

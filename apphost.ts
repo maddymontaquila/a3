@@ -57,10 +57,13 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
   .waitFor(cache);
 
 // ── Frontend — Vite + React + TypeScript ───────────────────────────
+const advisorEndpoint = await advisor.getEndpoint('http');
+
 await builder.addViteApp('frontend', './frontend')
   .withEnvironment('NODE_TLS_REJECT_UNAUTHORIZED', '0')
   .withEnvironmentEndpoint('services__api-boston__http__0', bostonEndpoint)
   .withEnvironmentEndpoint('services__api-nyc__http__0', nycEndpoint)
-  .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint);
+  .withEnvironmentEndpoint('services__api-bart__http__0', bartEndpoint)
+  .withEnvironmentEndpoint('services__api-advisor__http__0', advisorEndpoint);
 
 await builder.build().run();
