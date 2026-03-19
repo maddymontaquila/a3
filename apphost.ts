@@ -11,7 +11,11 @@ const builder = await createBuilder();
 const cache = await builder.addRedis('cache');
 
 await cache.withCommand('clear-cache', 'Clear Cache', createFlushCommand(cache), {
-  commandOptions: { iconName: 'Delete', description: 'Flush all cached transit data', confirmationMessage: 'Are you sure you want to flush all cached data?' }
+  commandOptions: { 
+    iconName: 'Delete', 
+    description: 'Flush all cached transit data', 
+    confirmationMessage: 'Are you sure you want to flush all cached data?' 
+  }
 });
 
 const openai = await builder.addOpenAI('openai');

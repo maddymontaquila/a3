@@ -55,9 +55,9 @@ var app = builder.Build();
 app.UseCors();
 if (app.Environment.IsDevelopment()) { app.MapHealthChecks("/healthz"); app.MapHealthChecks("/alive", new() { Predicate = r => r.Tags.Contains("live") }); }
 
-var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-json.TypeInfoResolver = System.Text.Json.Serialization.Metadata.JsonTypeInfoResolver.Combine(
-    new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver());
+var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) {
+    TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
+};
 
 // Cache helpers — degrade gracefully when Redis is unavailable
 var redis = app.Services.GetService<IConnectionMultiplexer>();
