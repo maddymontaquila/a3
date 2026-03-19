@@ -6,7 +6,7 @@
 #:package OpenTelemetry.Instrumentation.AspNetCore@*
 #:package OpenTelemetry.Instrumentation.Http@*
 #:package OpenTelemetry.Instrumentation.Runtime@*
-#:package StackExchange.Redis@*
+#:package Aspire.StackExchange.Redis@*
 
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -39,15 +39,9 @@ builder.Services.AddServiceDiscovery();
 builder.Services.ConfigureHttpClientDefaults(h => { h.AddStandardResilienceHandler(); h.AddServiceDiscovery(); });
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
-// Redis (optional)
-var redisConn = builder.Configuration.GetConnectionString("cache");
-if (!string.IsNullOrEmpty(redisConn))
-    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-    {
-        var opts = ConfigurationOptions.Parse(redisConn);
-        opts.AbortOnConnectFail = false;
-        return ConnectionMultiplexer.Connect(opts);
-    });
+// Redis via Aspire integration — handles connection string, health checks, and OTel tracing
+if (!string.IsNullOrEmpty(builder.Configuration.GetConnectionString("cache")))
+    builder.AddRedisClient("cache");
 
 builder.Services.AddHttpClient("subwayinfo", c => { c.BaseAddress = new Uri("https://subwayinfo.nyc"); c.Timeout = TimeSpan.FromSeconds(15); });
 
@@ -61,8 +55,11 @@ var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) {
 
 // Cache helpers — degrade gracefully when Redis is unavailable
 var redis = app.Services.GetService<IConnectionMultiplexer>();
-var cacheGet = async (string key) => { try { if (redis is null) return (string?)null; var v = await redis.GetDatabase().StringGetAsync(key); return v.HasValue ? (string?)v! : null; } catch { return null; } };
-var cacheSet = async (string key, object val, TimeSpan ttl) => { try { if (redis is not null) await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(val, json), ttl); } catch { } };
+async Task<T?> CacheGet<T>(string key) where T : class {
+    try { if (redis is null) return null; var v = await redis.GetDatabase().StringGetAsync(key);
+        return v.HasValue ? JsonSerializer.Deserialize<T>((string)v!, json) : null; } catch { return null; } }
+async Task CacheSet<T>(string key, T val, int seconds) {
+    try { if (redis is not null) await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(val, json), TimeSpan.FromSeconds(seconds)); } catch { } }
 
 // Route data
 var routes = new (string id, string name, string color, string textColor)[] {
@@ -85,79 +82,75 @@ var routeLookup = routes.ToDictionary(r => r.id, r => r.name);
 
 app.MapGet("/health", () => Results.Json(new { status = "healthy", service = "api-nyc" }, json));
 
-app.MapGet("/routes", async () =>
-{
-    const string key = "nyc:routes";
-    var cached = await cacheGet(key);
-    if (cached is not null) return Results.Text(cached, "application/json");
-    var data = routes.Select(r => new { id = r.id, name = r.name, color = r.color, textColor = r.textColor, type = "subway" }).ToArray();
-    await cacheSet(key, data, TimeSpan.FromSeconds(3600));
-    return Results.Json(data, json);
-});
+app.MapGet("/routes", () => Results.Json(routes.Select(r =>
+    new RouteOut(r.id, r.name, r.color, r.textColor, "subway")).ToArray(), json));
 
 app.MapGet("/predictions", async (string stop, IHttpClientFactory hf, ILogger<Program> log) =>
 {
     var key = $"nyc:pred:{stop}";
-    var cached = await cacheGet(key);
-    if (cached is not null) return Results.Text(cached, "application/json");
+    var cached = await CacheGet<PredOut[]>(key);
+    if (cached is not null) return Results.Json(cached, json);
     try
     {
         var client = hf.CreateClient("subwayinfo");
         var resp = await client.GetFromJsonAsync<ArrivalsResponse>($"/api/arrivals?station_id={Uri.EscapeDataString(stop)}&limit=20", json);
-        var preds = (resp?.Arrivals ?? []).Select(a => new {
-            routeId = a.Line, routeName = routeLookup.GetValueOrDefault(a.Line ?? "", a.Line),
-            stopId = resp?.StationId ?? stop, stopName = resp?.StationName ?? "",
-            direction = a.Headsign ?? "", arrivalTime = a.ArrivalTime ?? "",
-            minutesAway = a.MinutesAway, status = a.MinutesAway <= 1 ? "approaching" : "on-time",
-        }).ToArray();
-        await cacheSet(key, preds, TimeSpan.FromSeconds(30));
+        var preds = (resp?.Arrivals ?? []).Select(a => new PredOut(
+            a.Line ?? "", routeLookup.GetValueOrDefault(a.Line ?? "", a.Line),
+            resp?.StationId ?? stop, resp?.StationName ?? "",
+            a.Headsign ?? "", a.ArrivalTime ?? "", a.MinutesAway,
+            a.MinutesAway <= 1 ? "approaching" : "on-time"
+        )).ToArray();
+        await CacheSet(key, preds, 30);
         return Results.Json(preds, json);
     }
-    catch (Exception ex) { log.LogWarning(ex, "predictions failed for {Stop}", stop); return Results.Json(Array.Empty<object>(), json); }
+    catch (Exception ex) { log.LogWarning(ex, "predictions failed for {Stop}", stop); return Results.Json(Array.Empty<PredOut>(), json); }
 });
 
 app.MapGet("/alerts", async (IHttpClientFactory hf, ILogger<Program> log) =>
 {
     const string key = "nyc:alerts";
-    var cached = await cacheGet(key);
-    if (cached is not null) return Results.Text(cached, "application/json");
+    var cached = await CacheGet<AlertOut[]>(key);
+    if (cached is not null) return Results.Json(cached, json);
     try
     {
         var client = hf.CreateClient("subwayinfo");
         var items = await client.GetFromJsonAsync<SIAlert[]>("/api/alerts", json) ?? [];
-        var alerts = items.Select(a => new {
-            id = a.Id, severity = (a.Severity ?? "info").ToLowerInvariant(),
-            header = a.HeaderText ?? "", description = a.DescriptionText,
-            affectedRoutes = a.AffectedLines ?? [],
-            activePeriod = a.ActivePeriods?.FirstOrDefault(),
-            updatedAt = DateTimeOffset.UtcNow.ToString("o"),
-        }).ToArray();
-        await cacheSet(key, alerts, TimeSpan.FromSeconds(120));
+        var alerts = items.Select(a => new AlertOut(
+            a.Id ?? "", (a.Severity ?? "info").ToLowerInvariant(),
+            a.HeaderText ?? "", a.DescriptionText,
+            a.AffectedLines ?? [], a.ActivePeriods?.FirstOrDefault(),
+            DateTimeOffset.UtcNow.ToString("o")
+        )).ToArray();
+        await CacheSet(key, alerts, 120);
         return Results.Json(alerts, json);
     }
-    catch (Exception ex) { log.LogWarning(ex, "alerts fetch failed"); return Results.Json(Array.Empty<object>(), json); }
+    catch (Exception ex) { log.LogWarning(ex, "alerts fetch failed"); return Results.Json(Array.Empty<AlertOut>(), json); }
 });
 
 app.MapGet("/stops", async (string? route, IHttpClientFactory hf, ILogger<Program> log) =>
 {
     var key = $"nyc:stops:{route ?? "all"}";
-    var cached = await cacheGet(key);
-    if (cached is not null) return Results.Text(cached, "application/json");
+    var cached = await CacheGet<StopOut[]>(key);
+    if (cached is not null) return Results.Json(cached, json);
     try
     {
         var client = hf.CreateClient("subwayinfo");
         var url = string.IsNullOrWhiteSpace(route) ? "/api/stations" : $"/api/stations?line={Uri.EscapeDataString(route)}";
         var items = await client.GetFromJsonAsync<SIStation[]>(url, json) ?? [];
-        var stops = items.Select(s => new {
-            s.Id, s.Name, latitude = s.Lat, longitude = s.Lon, routeIds = s.Lines ?? [],
-        }).ToArray();
-        await cacheSet(key, stops, TimeSpan.FromSeconds(3600));
+        var stops = items.Select(s => new StopOut(s.Id ?? "", s.Name ?? "", s.Lat, s.Lon, s.Lines ?? [])).ToArray();
+        await CacheSet(key, stops, 3600);
         return Results.Json(stops, json);
     }
-    catch (Exception ex) { log.LogWarning(ex, "stops fetch failed"); return Results.Json(Array.Empty<object>(), json); }
+    catch (Exception ex) { log.LogWarning(ex, "stops fetch failed"); return Results.Json(Array.Empty<StopOut>(), json); }
 });
 
 app.Run();
+
+// ── Output types ───────────────────────────────────────────────────
+record RouteOut(string Id, string Name, string Color, string TextColor, string Type);
+record PredOut(string RouteId, string? RouteName, string StopId, string StopName, string Direction, string ArrivalTime, double MinutesAway, string Status);
+record AlertOut(string Id, string Severity, string Header, string? Description, string[] AffectedRoutes, SIActivePeriod? ActivePeriod, string UpdatedAt);
+record StopOut(string Id, string Name, double Latitude, double Longitude, string[] RouteIds);
 
 // ── SubwayInfo.nyc response types ──────────────────────────────────
 record ArrivalsResponse(string? StationId, string? StationName, Arrival[] Arrivals);
