@@ -8,6 +8,7 @@
 #:package OpenTelemetry.Instrumentation.Runtime@*
 #:package StackExchange.Redis@*
 
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -100,22 +101,21 @@ app.MapGet("/predictions", async (string stop, IHttpClientFactory hf, ILogger<Pr
     try
     {
         var client = hf.CreateClient("subwayinfo");
-        using var doc = JsonDocument.Parse(await client.GetStringAsync($"/api/arrivals?station_id={Uri.EscapeDataString(stop)}&limit=20"));
-        var root = doc.RootElement;
-        var sid = root.TryGetProperty("stationId", out var s) ? s.GetString() ?? stop : stop;
-        var sname = root.TryGetProperty("stationName", out var sn) ? sn.GetString() ?? "" : "";
-        var preds = new List<object>();
-        if (root.TryGetProperty("arrivals", out var arr))
-            foreach (var a in arr.EnumerateArray())
-            {
-                var line = a.TryGetProperty("line", out var l) ? l.GetString() ?? "" : "";
-                var mins = a.TryGetProperty("minutesAway", out var m) ? m.GetDouble() : 0;
-                preds.Add(new { routeId = line, routeName = routeLookup.GetValueOrDefault(line, line),
-                    stopId = sid, stopName = sname,
-                    direction = a.TryGetProperty("headsign", out var h) ? h.GetString() ?? "" : "",
-                    arrivalTime = a.TryGetProperty("arrivalTime", out var at) ? at.GetString() ?? "" : "",
-                    minutesAway = mins, status = mins <= 1 ? "approaching" : "on-time" });
-            }
+        var resp = await client.GetFromJsonAsync<JsonElement>($"/api/arrivals?station_id={Uri.EscapeDataString(stop)}&limit=20");
+        var sid = resp.GetProperty("stationId").GetString() ?? stop;
+        var sname = resp.GetProperty("stationName").GetString() ?? "";
+        var preds = resp.GetProperty("arrivals").EnumerateArray().Select(a =>
+        {
+            var line = a.GetProperty("line").GetString() ?? "";
+            var mins = a.GetProperty("minutesAway").GetDouble();
+            return new {
+                routeId = line, routeName = routeLookup.GetValueOrDefault(line, line),
+                stopId = sid, stopName = sname,
+                direction = a.GetProperty("headsign").GetString() ?? "",
+                arrivalTime = a.GetProperty("arrivalTime").GetString() ?? "",
+                minutesAway = mins, status = mins <= 1 ? "approaching" : "on-time",
+            };
+        }).ToArray();
         await cacheSet(key, preds, TimeSpan.FromSeconds(30));
         return Results.Json(preds, json);
     }
@@ -130,18 +130,18 @@ app.MapGet("/alerts", async (IHttpClientFactory hf, ILogger<Program> log) =>
     try
     {
         var client = hf.CreateClient("subwayinfo");
-        using var doc = JsonDocument.Parse(await client.GetStringAsync("/api/alerts"));
-        var alerts = doc.RootElement.EnumerateArray().Select(a => new {
-            id = a.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "",
-            severity = (a.TryGetProperty("severity", out var sv) ? sv.GetString() ?? "info" : "info").ToLowerInvariant(),
-            header = a.TryGetProperty("headerText", out var ht) ? ht.GetString() ?? "" : "",
+        var items = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
+        var alerts = items.EnumerateArray().Select(a => new {
+            id = a.GetProperty("id").GetString() ?? "",
+            severity = (a.GetProperty("severity").GetString() ?? "info").ToLowerInvariant(),
+            header = a.GetProperty("headerText").GetString() ?? "",
             description = a.TryGetProperty("descriptionText", out var dt) ? dt.GetString() : null,
-            affectedRoutes = a.TryGetProperty("affectedLines", out var al) ? al.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : new List<string>(),
-            activePeriods = a.TryGetProperty("activePeriods", out var ap)
-                ? ap.EnumerateArray().Select(p => (object)new {
-                    start = p.TryGetProperty("start", out var ps) ? ps.GetString() : null,
-                    end = p.TryGetProperty("end", out var pe) ? pe.GetString() : null }).ToList()
-                : new List<object>()
+            affectedRoutes = a.GetProperty("affectedLines").EnumerateArray().Select(x => x.GetString() ?? "").ToArray(),
+            activePeriod = a.GetProperty("activePeriods").EnumerateArray().Select(p => new {
+                start = p.TryGetProperty("start", out var ps) ? ps.GetString() : null,
+                end = p.TryGetProperty("end", out var pe) ? pe.GetString() : null,
+            }).FirstOrDefault(),
+            updatedAt = DateTimeOffset.UtcNow.ToString("o"),
         }).ToArray();
         await cacheSet(key, alerts, TimeSpan.FromSeconds(120));
         return Results.Json(alerts, json);
@@ -158,13 +158,13 @@ app.MapGet("/stops", async (string? route, IHttpClientFactory hf, ILogger<Progra
     {
         var client = hf.CreateClient("subwayinfo");
         var url = string.IsNullOrWhiteSpace(route) ? "/api/stations" : $"/api/stations?line={Uri.EscapeDataString(route)}";
-        using var doc = JsonDocument.Parse(await client.GetStringAsync(url));
-        var stops = doc.RootElement.EnumerateArray().Select(s => new {
-            id = s.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "",
-            name = s.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
-            latitude = s.TryGetProperty("lat", out var la) ? la.GetDouble() : 0,
-            longitude = s.TryGetProperty("lon", out var lo) ? lo.GetDouble() : 0,
-            routeIds = s.TryGetProperty("lines", out var li) ? li.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : new List<string>()
+        var items = await client.GetFromJsonAsync<JsonElement>(url);
+        var stops = items.EnumerateArray().Select(s => new {
+            id = s.GetProperty("id").GetString() ?? "",
+            name = s.GetProperty("name").GetString() ?? "",
+            latitude = s.GetProperty("lat").GetDouble(),
+            longitude = s.GetProperty("lon").GetDouble(),
+            routeIds = s.GetProperty("lines").EnumerateArray().Select(x => x.GetString() ?? "").ToArray(),
         }).ToArray();
         await cacheSet(key, stops, TimeSpan.FromSeconds(3600));
         return Results.Json(stops, json);
