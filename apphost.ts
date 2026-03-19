@@ -2,13 +2,14 @@
 // TypeScript AppHost for AspireConf Keynote
 // Orchestrates a polyglot train tracker: Python, C#, Go, TypeScript
 
-import { createBuilder } from './.modules/aspire.js';
+import { ContainerLifetime, createBuilder } from './.modules/aspire.js';
 import { createFlushCommand } from './commands.js';
 
 const builder = await createBuilder();
 
 // ── Infrastructure ─────────────────────────────────────────────────
-const cache = await builder.addRedis('cache');
+const cache = await builder.addRedis('cache')
+  .withLifetime(ContainerLifetime.Persistent);
 
 await cache.withCommand('clear-cache', 'Clear Cache', createFlushCommand(cache), {
   commandOptions: { 
