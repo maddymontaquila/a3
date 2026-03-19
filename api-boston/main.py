@@ -1,385 +1,211 @@
 """Boston MBTA Transit Data API — FastAPI service."""
-
 from __future__ import annotations
-
-import hashlib
-import json
-import logging
-import os
+import hashlib, json, logging, os
 from datetime import datetime, timezone
-from typing import Any
-from urllib.parse import urlparse
-
+from typing import Any, Callable
 import httpx
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-# ---------------------------------------------------------------------------
-# OpenTelemetry — auto-instrument before app creation
-# ---------------------------------------------------------------------------
-otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-if otlp_endpoint:
+# --- OpenTelemetry ---
+_otel_instrumentor = None
+if _otlp := os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
     try:
         from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter,
-        )
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
-        service_name = os.environ.get("OTEL_SERVICE_NAME", "api-boston")
-        resource = Resource.create({"service.name": service_name})
-        provider = TracerProvider(resource=resource)
-
-        # Use Aspire-provided cert if available, otherwise try insecure
-        cert_path = os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE")
-        if cert_path and os.path.exists(cert_path):
+        provider = TracerProvider(resource=Resource.create(
+            {"service.name": os.environ.get("OTEL_SERVICE_NAME", "api-boston")}))
+        cert = os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE")
+        if cert and os.path.exists(cert):
             import grpc
-            with open(cert_path, "rb") as f:
-                credentials = grpc.ssl_channel_credentials(root_certificates=f.read())
-            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, credentials=credentials)
-        elif otlp_endpoint.startswith("https"):
-            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=False)
+            with open(cert, "rb") as f:
+                exporter = OTLPSpanExporter(endpoint=_otlp,
+                    credentials=grpc.ssl_channel_credentials(root_certificates=f.read()))
         else:
-            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
-
+            exporter = OTLPSpanExporter(endpoint=_otlp, insecure=not _otlp.startswith("https"))
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         HTTPXClientInstrumentor().instrument()
-        _otel_fastapi_instrumentor = FastAPIInstrumentor()
+        _otel_instrumentor = FastAPIInstrumentor()
     except Exception:
         logging.exception("OpenTelemetry setup failed — continuing without tracing")
-        _otel_fastapi_instrumentor = None
-else:
-    _otel_fastapi_instrumentor = None
 
-# ---------------------------------------------------------------------------
-# FastAPI app
-# ---------------------------------------------------------------------------
+# --- App ---
 app = FastAPI(title="Boston MBTA Transit API", version="0.1.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
+if _otel_instrumentor:
+    _otel_instrumentor.instrument_app(app)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-if _otel_fastapi_instrumentor is not None:
-    _otel_fastapi_instrumentor.instrument_app(app)
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-MBTA_BASE_URL = "https://api-v3.mbta.com"
-MBTA_API_KEY = os.environ.get("MBTA_API_KEY")
-
+MBTA_BASE = "https://api-v3.mbta.com"
+MBTA_KEY = os.environ.get("MBTA_API_KEY")
 logger = logging.getLogger("api-boston")
+TTLS = {"predictions": 30, "alerts": 120, "routes": 3600, "stops": 3600}
 
-# Cache TTLs (seconds)
-CACHE_TTL_PREDICTIONS = 30
-CACHE_TTL_ALERTS = 120
-CACHE_TTL_ROUTES = 3600
-CACHE_TTL_STOPS = 3600
-
-# ---------------------------------------------------------------------------
-# Redis helper
-# ---------------------------------------------------------------------------
-_redis_client: Any = None
-
+# --- Redis / caching ---
+_rc: Any = None
 
 def _get_redis():
-    """Return a Redis client (lazy, singleton). Returns None when unavailable."""
-    global _redis_client
-    if _redis_client is not None:
-        return _redis_client
-
-    conn_str = os.environ.get("ConnectionStrings__cache")
-    if not conn_str:
+    global _rc
+    if _rc is not None:
+        return _rc
+    conn = os.environ.get("ConnectionStrings__cache")
+    if not conn:
         return None
-
     try:
-        import redis as _redis_mod
-
-        # Aspire may provide Redis connection in different formats:
-        #   redis://:password@host:port  (URI format)
-        #   host:port,password=xxx       (StackExchange.Redis format)
-        if conn_str.startswith("redis://") or conn_str.startswith("rediss://"):
-            parsed = urlparse(conn_str)
-            host = parsed.hostname or "localhost"
-            port = parsed.port or 6379
-            password = parsed.password or None
+        import redis
+        if conn.startswith(("redis://", "rediss://")):
+            from urllib.parse import urlparse
+            p = urlparse(conn)
+            host, port, pw = p.hostname or "localhost", p.port or 6379, p.password
+            ssl = conn.startswith("rediss://")
         else:
-            host, port, password = "localhost", 6379, None
-            parts = conn_str.split(",")
-            for part in parts:
+            # StackExchange format: host:port,password=xxx,ssl=True
+            opts, hp = {}, None
+            for part in conn.split(","):
                 part = part.strip()
                 if "=" in part:
                     k, v = part.split("=", 1)
-                    if k.lower() == "password":
-                        password = v
-                elif ":" in part and host == "localhost":
-                    h, p = part.rsplit(":", 1)
-                    host = h
-                    try:
-                        port = int(p)
-                    except ValueError:
-                        pass
-                elif part and host == "localhost":
-                    host = part
-
-        # Detect TLS (rediss:// scheme)
-        use_ssl = conn_str.startswith("rediss://")
-
-        _redis_client = _redis_mod.Redis(
-            host=host, port=port, password=password, decode_responses=True, socket_timeout=2,
-            ssl=use_ssl, ssl_cert_reqs=None,  # skip cert verify for Aspire dev certs
-        )
-        _redis_client.ping()
+                    opts[k.strip().lower()] = v.strip()
+                elif not hp:
+                    hp = part
+            hp = (hp or "localhost").rsplit(":", 1)
+            host, port = hp[0], int(hp[1]) if len(hp) > 1 else 6379
+            pw, ssl = opts.get("password"), opts.get("ssl", "").lower() == "true"
+        _rc = redis.Redis(host=host, port=port, password=pw, decode_responses=True,
+                          socket_timeout=2, ssl=ssl, ssl_cert_reqs=None)
+        _rc.ping()
         logger.info("Connected to Redis at %s:%s", host, port)
-        return _redis_client
+        return _rc
     except Exception:
         logger.warning("Redis unavailable — caching disabled")
-        _redis_client = None
+        _rc = None
         return None
 
-
-def _cache_get(key: str) -> Any | None:
+def _cache_get(prefix: str, *parts: str) -> tuple[Any | None, str]:
+    key = f"mbta:{prefix}:{hashlib.sha256('|'.join(parts).encode()).hexdigest()[:12]}"
     try:
         r = _get_redis()
-        if r is None:
-            return None
-        raw = r.get(key)
-        return json.loads(raw) if raw else None
+        if r and (raw := r.get(key)):
+            return json.loads(raw), key
     except Exception:
-        return None
-
+        pass
+    return None, key
 
 def _cache_set(key: str, value: Any, ttl: int) -> None:
     try:
         r = _get_redis()
-        if r is None:
-            return
-        r.setex(key, ttl, json.dumps(value, default=str))
+        if r:
+            r.setex(key, ttl, json.dumps(value, default=str))
     except Exception:
         pass
 
-
-def _cache_key(prefix: str, *parts: str) -> str:
-    h = hashlib.sha256("|".join(parts).encode()).hexdigest()[:12]
-    return f"mbta:{prefix}:{h}"
-
-
-# ---------------------------------------------------------------------------
-# MBTA API client
-# ---------------------------------------------------------------------------
+# --- MBTA client ---
 async def _mbta_get(path: str, params: dict[str, str] | None = None) -> dict:
-    params = dict(params or {})
-    if MBTA_API_KEY:
-        params["api_key"] = MBTA_API_KEY
+    p = dict(params or {})
+    if MBTA_KEY:
+        p["api_key"] = MBTA_KEY
+    async with httpx.AsyncClient(base_url=MBTA_BASE, timeout=15) as c:
+        r = await c.get(path, params=p)
+        r.raise_for_status()
+        return r.json()
 
-    async with httpx.AsyncClient(base_url=MBTA_BASE_URL, timeout=15) as client:
-        resp = await client.get(path, params=params)
-        resp.raise_for_status()
-        return resp.json()
+async def _cached_fetch(prefix: str, key_parts: tuple[str, ...], path: str,
+                        params: dict, norm: Callable, *, with_included: bool = False) -> list:
+    cached, key = _cache_get(prefix, *key_parts)
+    if cached is not None:
+        return cached
+    data = await _mbta_get(path, params)
+    items = data.get("data", [])
+    if with_included:
+        inc = {(i["type"], i["id"]): i for i in data.get("included", []) if "type" in i and "id" in i}
+        result = [norm(i, inc) for i in items]
+    else:
+        result = [norm(i) for i in items]
+    _cache_set(key, result, TTLS[prefix])
+    return result
 
-
-# ---------------------------------------------------------------------------
-# Normalization helpers
-# ---------------------------------------------------------------------------
-
-def _attr(item: dict) -> dict:
+# --- Normalizers ---
+def _a(item: dict) -> dict:
     return item.get("attributes", {})
 
+def _ref(rels: dict, name: str) -> dict:
+    return (rels.get(name, {}).get("data") or {})
 
 def _normalize_route(item: dict) -> dict:
-    a = _attr(item)
-    return {
-        "id": item["id"],
-        "name": a.get("long_name") or a.get("short_name", ""),
-        "color": f"#{a['color']}" if a.get("color") else None,
-        "textColor": f"#{a['text_color']}" if a.get("text_color") else None,
-        "type": a.get("type"),
-    }
+    a = _a(item)
+    return {"id": item["id"], "name": a.get("long_name") or a.get("short_name", ""),
+            "color": f"#{a['color']}" if a.get("color") else None,
+            "textColor": f"#{a['text_color']}" if a.get("text_color") else None,
+            "type": a.get("type")}
 
-
-def _normalize_prediction(item: dict, included: dict[tuple[str, str], dict]) -> dict:
-    a = _attr(item)
-    rels = item.get("relationships", {})
-
-    route_ref = (rels.get("route", {}).get("data") or {})
-    route_key = (route_ref.get("type", ""), route_ref.get("id", ""))
-    route_inc = included.get(route_key, {})
-
-    stop_ref = (rels.get("stop", {}).get("data") or {})
-    stop_key = (stop_ref.get("type", ""), stop_ref.get("id", ""))
-    stop_inc = included.get(stop_key, {})
-
-    arrival_str = a.get("arrival_time") or a.get("departure_time")
-    minutes_away = None
-    if arrival_str:
+def _normalize_prediction(item: dict, inc: dict) -> dict:
+    a, rels = _a(item), item.get("relationships", {})
+    rr, sr = _ref(rels, "route"), _ref(rels, "stop")
+    ra = _a(inc.get((rr.get("type", ""), rr.get("id", "")), {}))
+    sa = _a(inc.get((sr.get("type", ""), sr.get("id", "")), {}))
+    arr = a.get("arrival_time") or a.get("departure_time")
+    mins = None
+    if arr:
         try:
-            arrival_dt = datetime.fromisoformat(arrival_str)
-            now = datetime.now(timezone.utc)
-            minutes_away = max(0, round((arrival_dt - now).total_seconds() / 60, 1))
+            mins = max(0, round((datetime.fromisoformat(arr) - datetime.now(timezone.utc)).total_seconds() / 60, 1))
         except Exception:
             pass
-
-    # direction_id is 0 or 1 — get the human-readable destination from the route
-    direction_id = a.get("direction_id", 0)
-    route_attrs = _attr(route_inc)
-    direction_dests = route_attrs.get("direction_destinations") or []
-    direction_names = route_attrs.get("direction_names") or []
-    if direction_dests and direction_id is not None and direction_id < len(direction_dests):
-        direction = direction_dests[direction_id]
-    elif direction_names and direction_id is not None and direction_id < len(direction_names):
-        direction = direction_names[direction_id]
-    else:
-        direction = "Inbound" if direction_id == 1 else "Outbound"
-
-    return {
-        "routeId": route_ref.get("id"),
-        "routeName": _attr(route_inc).get("long_name") or _attr(route_inc).get("short_name"),
-        "stopId": stop_ref.get("id"),
-        "stopName": _attr(stop_inc).get("name"),
-        "direction": direction,
-        "arrivalTime": arrival_str,
-        "minutesAway": minutes_away,
-        "status": a.get("status"),
-    }
-
+    did = a.get("direction_id", 0)
+    dests, names = ra.get("direction_destinations") or [], ra.get("direction_names") or []
+    direction = (dests[did] if did is not None and did < len(dests)
+                 else names[did] if did is not None and did < len(names)
+                 else "Inbound" if did == 1 else "Outbound")
+    return {"routeId": rr.get("id"), "routeName": ra.get("long_name") or ra.get("short_name"),
+            "stopId": sr.get("id"), "stopName": sa.get("name"), "direction": direction,
+            "arrivalTime": arr, "minutesAway": mins, "status": a.get("status")}
 
 def _normalize_alert(item: dict) -> dict:
-    a = _attr(item)
-    rels = item.get("relationships", {})
-
-    affected = []
-    for entity in (a.get("informed_entity") or []):
-        rid = entity.get("route")
-        if rid and rid not in affected:
-            affected.append(rid)
-
+    a = _a(item)
+    affected = list(dict.fromkeys(e["route"] for e in (a.get("informed_entity") or []) if e.get("route")))
     periods = a.get("active_period") or []
-    active_period = None
-    if periods:
-        p = periods[0]
-        active_period = {"start": p.get("start"), "end": p.get("end")}
-
-    # Map MBTA numeric severity to our string format
-    raw_sev = a.get("severity", 0)
-    if isinstance(raw_sev, int):
-        severity = "severe" if raw_sev >= 7 else "warning" if raw_sev >= 4 else "info"
-    else:
-        severity = str(raw_sev).lower() if raw_sev else "info"
-
-    return {
-        "id": item["id"],
-        "severity": severity,
-        "header": a.get("header"),
-        "description": a.get("description"),
-        "affectedRoutes": affected,
-        "activePeriod": active_period,
-        "updatedAt": a.get("updated_at"),
-    }
-
+    raw = a.get("severity", 0)
+    sev = ("severe" if raw >= 7 else "warning" if raw >= 4 else "info") if isinstance(raw, int) else (str(raw).lower() or "info")
+    return {"id": item["id"], "severity": sev, "header": a.get("header"),
+            "description": a.get("description"), "affectedRoutes": affected,
+            "activePeriod": {"start": periods[0].get("start"), "end": periods[0].get("end")} if periods else None,
+            "updatedAt": a.get("updated_at")}
 
 def _normalize_stop(item: dict) -> dict:
-    a = _attr(item)
-    rels = item.get("relationships", {})
+    a = _a(item)
+    rd = (item.get("relationships", {}).get("route", {}) or {}).get("data")
+    ids = ([r["id"] for r in rd if "id" in r] if isinstance(rd, list)
+           else [rd["id"]] if isinstance(rd, dict) and "id" in rd else [])
+    return {"id": item["id"], "name": a.get("name"), "latitude": a.get("latitude"),
+            "longitude": a.get("longitude"), "routeIds": ids}
 
-    route_ids = []
-    route_data = (rels.get("route", {}) or {}).get("data")
-    if isinstance(route_data, list):
-        route_ids = [r["id"] for r in route_data if "id" in r]
-    elif isinstance(route_data, dict) and "id" in route_data:
-        route_ids = [route_data["id"]]
-
-    return {
-        "id": item["id"],
-        "name": a.get("name"),
-        "latitude": a.get("latitude"),
-        "longitude": a.get("longitude"),
-        "routeIds": route_ids,
-    }
-
-
-def _build_included_index(data: dict) -> dict[tuple[str, str], dict]:
-    idx: dict[tuple[str, str], dict] = {}
-    for inc in data.get("included", []):
-        idx[(inc.get("type", ""), inc.get("id", ""))] = inc
-    return idx
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
+# --- Endpoints ---
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "api-boston"}
 
-
 @app.get("/routes")
 async def list_routes():
-    cache_key = _cache_key("routes", "subway")
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    data = await _mbta_get("/routes", {"filter[type]": "0,1"})
-    result = [_normalize_route(item) for item in data.get("data", [])]
-    _cache_set(cache_key, result, CACHE_TTL_ROUTES)
-    return result
-
+    return await _cached_fetch("routes", ("subway",), "/routes", {"filter[type]": "0,1"}, _normalize_route)
 
 @app.get("/predictions")
 async def get_predictions(stop: str = Query(..., description="Stop ID")):
-    cache_key = _cache_key("predictions", stop)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    data = await _mbta_get("/predictions", {"filter[stop]": stop, "include": "route,stop"})
-    included = _build_included_index(data)
-    result = [_normalize_prediction(item, included) for item in data.get("data", [])]
-    _cache_set(cache_key, result, CACHE_TTL_PREDICTIONS)
-    return result
-
+    return await _cached_fetch("predictions", (stop,), "/predictions",
+                               {"filter[stop]": stop, "include": "route,stop"}, _normalize_prediction, with_included=True)
 
 @app.get("/alerts")
 async def list_alerts():
-    cache_key = _cache_key("alerts", "transit")
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    data = await _mbta_get("/alerts", {"filter[route_type]": "0,1"})
-    result = [_normalize_alert(item) for item in data.get("data", [])]
-    _cache_set(cache_key, result, CACHE_TTL_ALERTS)
-    return result
-
+    return await _cached_fetch("alerts", ("transit",), "/alerts", {"filter[route_type]": "0,1"}, _normalize_alert)
 
 @app.get("/stops")
 async def list_stops(route: str = Query(..., description="Route ID")):
-    cache_key = _cache_key("stops", route)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
+    return await _cached_fetch("stops", (route,), "/stops", {"filter[route]": route}, _normalize_stop)
 
-    data = await _mbta_get("/stops", {"filter[route]": route})
-    result = [_normalize_stop(item) for item in data.get("data", [])]
-    _cache_set(cache_key, result, CACHE_TTL_STOPS)
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Entrypoint
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
