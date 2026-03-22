@@ -25,9 +25,13 @@ OTEL_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "api-advisor")
 
 if OTEL_ENDPOINT:
+    from opentelemetry._logs import set_logger_provider
     from opentelemetry import metrics, trace
+    from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
     from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.resources import Resource
@@ -47,20 +51,27 @@ if OTEL_ENDPOINT:
             creds = grpc.ssl_channel_credentials(root_certificates=f.read())
         trace_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, credentials=creds)
         metric_exporter = OTLPMetricExporter(endpoint=OTEL_ENDPOINT, credentials=creds)
+        log_exporter = OTLPLogExporter(endpoint=OTEL_ENDPOINT, credentials=creds)
     elif OTEL_ENDPOINT.startswith("https"):
         trace_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=False)
         metric_exporter = OTLPMetricExporter(endpoint=OTEL_ENDPOINT, insecure=False)
+        log_exporter = OTLPLogExporter(endpoint=OTEL_ENDPOINT, insecure=False)
     else:
         trace_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True)
         metric_exporter = OTLPMetricExporter(endpoint=OTEL_ENDPOINT, insecure=True)
+        log_exporter = OTLPLogExporter(endpoint=OTEL_ENDPOINT, insecure=True)
 
     tracer_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
     meter_provider = MeterProvider(
         resource=resource,
         metric_readers=[PeriodicExportingMetricReader(metric_exporter)],
     )
+    logger_provider = LoggerProvider(resource=resource)
+    logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+
     trace.set_tracer_provider(tracer_provider)
     metrics.set_meter_provider(meter_provider)
+    set_logger_provider(logger_provider)
     HTTPXClientInstrumentor().instrument(
         tracer_provider=tracer_provider,
         meter_provider=meter_provider,
@@ -72,7 +83,11 @@ if OTEL_ENDPOINT:
 
     # Instrument OpenAI SDK for GenAI semantic conventions
     from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
-    OpenAIInstrumentor().instrument()
+    OpenAIInstrumentor().instrument(
+        tracer_provider=tracer_provider,
+        meter_provider=meter_provider,
+        logger_provider=logger_provider,
+    )
 
 logger = logging.getLogger(SERVICE_NAME)
 logging.basicConfig(level=logging.INFO)
