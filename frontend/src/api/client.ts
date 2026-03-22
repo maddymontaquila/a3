@@ -9,7 +9,7 @@ declare const __API_BART__: string;
 declare const __API_ADVISOR__: string;
 
 const BOSTON_API = typeof __API_BOSTON__ !== 'undefined' ? __API_BOSTON__ : 'http://localhost:5180';
-const NYC_API = typeof __API_NYC__ !== 'undefined' ? __API_NYC__ : 'http://localhost:5181';
+const NYC_API = typeof __API_NYC__ !== 'undefined' ? __API_NYC__ : 'https://localhost:5181';
 const BART_API = typeof __API_BART__ !== 'undefined' ? __API_BART__ : 'http://localhost:5182';
 const ADVISOR_API = typeof __API_ADVISOR__ !== 'undefined' ? __API_ADVISOR__ : 'http://localhost:5183';
 

@@ -4,23 +4,23 @@
     "language": "typescript/nodejs"
   },
   "sdk": {
-    "version": "13.3.0-preview.1.26168.6"
+    "version": "13.2.0"
   },
-  "channel": "daily",
+  "channel": "staging",
   "profiles": {
     "https": {
-      "applicationUrl": "https://localhost:61695;http://localhost:38496",
+      "applicationUrl": "https://a3.dev.localhost:61695;http://a3.dev.localhost:38496",
       "environmentVariables": {
-        "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:44739",
-        "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:43544"
+        "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://otlp.dev.localhost:44739",
+        "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://resources.dev.localhost:43544"
       }
     }
   },
   "packages": {
-    "Aspire.Hosting.Redis": "13.3.0-preview.1.26168.6",
+    "Aspire.Hosting.Redis": "13.2.0",
     "CommunityToolkit.Aspire.Hosting.Golang": "13.2.1-beta.532",
-    "Aspire.Hosting.JavaScript": "13.3.0-preview.1.26168.6",
-    "Aspire.Hosting.Python": "13.3.0-preview.1.26168.6",
-    "Aspire.Hosting.OpenAI": "13.3.0-preview.1.26168.6"
+    "Aspire.Hosting.JavaScript": "13.2.0",
+    "Aspire.Hosting.Python": "13.2.0",
+    "Aspire.Hosting.OpenAI": "13.2.0"
   }
 }

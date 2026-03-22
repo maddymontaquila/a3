@@ -10,6 +10,8 @@
 
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -49,17 +51,13 @@ var app = builder.Build();
 app.UseCors();
 if (app.Environment.IsDevelopment()) { app.MapHealthChecks("/healthz"); app.MapHealthChecks("/alive", new() { Predicate = r => r.Tags.Contains("live") }); }
 
-var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) {
-    TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
-};
-
 // Cache helpers — degrade gracefully when Redis is unavailable
 var redis = app.Services.GetService<IConnectionMultiplexer>();
-async Task<T?> CacheGet<T>(string key) where T : class {
+async Task<T?> CacheGet<T>(string key, JsonTypeInfo<T> jsonTypeInfo) where T : class {
     try { if (redis is null) return null; var v = await redis.GetDatabase().StringGetAsync(key);
-        return v.HasValue ? JsonSerializer.Deserialize<T>((string)v!, json) : null; } catch { return null; } }
-async Task CacheSet<T>(string key, T val, int seconds) {
-    try { if (redis is not null) await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(val, json), TimeSpan.FromSeconds(seconds)); } catch { } }
+        return v.HasValue ? JsonSerializer.Deserialize((string)v!, jsonTypeInfo) : null; } catch { return null; } }
+async Task CacheSet<T>(string key, T val, int seconds, JsonTypeInfo<T> jsonTypeInfo) {
+    try { if (redis is not null) await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(val, jsonTypeInfo), TimeSpan.FromSeconds(seconds)); } catch { } }
 
 // Route data
 var routes = new (string id, string name, string color, string textColor)[] {
@@ -80,73 +78,77 @@ var routeLookup = routes.ToDictionary(r => r.id, r => r.name);
 
 // ── Endpoints ──────────────────────────────────────────────────────
 
-app.MapGet("/health", () => Results.Json(new { status = "healthy", service = "api-nyc" }, json));
+app.MapGet("/health", () => Results.Json(new HealthOut("healthy", "api-nyc"), AppJsonContext.Default.HealthOut));
 
 app.MapGet("/routes", () => Results.Json(routes.Select(r =>
-    new RouteOut(r.id, r.name, r.color, r.textColor, "subway")).ToArray(), json));
+    new RouteOut(r.id, r.name, r.color, r.textColor, "subway")).ToArray(), AppJsonContext.Default.RouteOutArray));
 
 app.MapGet("/predictions", async (string stop, IHttpClientFactory hf, ILogger<Program> log) =>
 {
     var key = $"nyc:pred:{stop}";
-    var cached = await CacheGet<PredOut[]>(key);
-    if (cached is not null) return Results.Json(cached, json);
+    var cached = await CacheGet(key, AppJsonContext.Default.PredOutArray);
+    if (cached is not null) return Results.Json(cached, AppJsonContext.Default.PredOutArray);
     try
     {
         var client = hf.CreateClient("subwayinfo");
-        var resp = await client.GetFromJsonAsync<ArrivalsResponse>($"/api/arrivals?station_id={Uri.EscapeDataString(stop)}&limit=20", json);
-        var preds = (resp?.Arrivals ?? []).Select(a => new PredOut(
-            a.Line ?? "", routeLookup.GetValueOrDefault(a.Line ?? "", a.Line),
+        var resp = await client.GetFromJsonAsync($"/api/arrivals?station_id={Uri.EscapeDataString(stop)}&limit=20", AppJsonContext.Default.ArrivalsResponse);
+        var preds = (resp?.Arrivals ?? []).Select(a => {
+            var routeId = a.Line ?? "";
+            return new PredOut(
+            routeId, routeLookup.TryGetValue(routeId, out var routeName) ? routeName : a.Line,
             resp?.StationId ?? stop, resp?.StationName ?? "",
             a.Headsign ?? "", a.ArrivalTime ?? "", a.MinutesAway,
             a.MinutesAway <= 1 ? "approaching" : "on-time"
-        )).ToArray();
-        await CacheSet(key, preds, 30);
-        return Results.Json(preds, json);
+        );
+        }).ToArray();
+        await CacheSet(key, preds, 30, AppJsonContext.Default.PredOutArray);
+        return Results.Json(preds, AppJsonContext.Default.PredOutArray);
     }
-    catch (Exception ex) { log.LogWarning(ex, "predictions failed for {Stop}", stop); return Results.Json(Array.Empty<PredOut>(), json); }
+    catch (Exception ex) { log.LogWarning(ex, "predictions failed for {Stop}", stop); return Results.Json(Array.Empty<PredOut>(), AppJsonContext.Default.PredOutArray); }
 });
 
 app.MapGet("/alerts", async (IHttpClientFactory hf, ILogger<Program> log) =>
 {
     const string key = "nyc:alerts";
-    var cached = await CacheGet<AlertOut[]>(key);
-    if (cached is not null) return Results.Json(cached, json);
+    var cached = await CacheGet(key, AppJsonContext.Default.AlertOutArray);
+    if (cached is not null) return Results.Json(cached, AppJsonContext.Default.AlertOutArray);
     try
     {
         var client = hf.CreateClient("subwayinfo");
-        var items = await client.GetFromJsonAsync<SIAlert[]>("/api/alerts", json) ?? [];
+        var items = await client.GetFromJsonAsync("/api/alerts", AppJsonContext.Default.SIAlertArray) ?? [];
         var alerts = items.Select(a => new AlertOut(
             a.Id ?? "", (a.Severity ?? "info").ToLowerInvariant(),
             a.HeaderText ?? "", a.DescriptionText,
             a.AffectedLines ?? [], a.ActivePeriods?.FirstOrDefault(),
             DateTimeOffset.UtcNow.ToString("o")
         )).ToArray();
-        await CacheSet(key, alerts, 120);
-        return Results.Json(alerts, json);
+        await CacheSet(key, alerts, 120, AppJsonContext.Default.AlertOutArray);
+        return Results.Json(alerts, AppJsonContext.Default.AlertOutArray);
     }
-    catch (Exception ex) { log.LogWarning(ex, "alerts fetch failed"); return Results.Json(Array.Empty<AlertOut>(), json); }
+    catch (Exception ex) { log.LogWarning(ex, "alerts fetch failed"); return Results.Json(Array.Empty<AlertOut>(), AppJsonContext.Default.AlertOutArray); }
 });
 
 app.MapGet("/stops", async (string? route, IHttpClientFactory hf, ILogger<Program> log) =>
 {
     var key = $"nyc:stops:{route ?? "all"}";
-    var cached = await CacheGet<StopOut[]>(key);
-    if (cached is not null) return Results.Json(cached, json);
+    var cached = await CacheGet(key, AppJsonContext.Default.StopOutArray);
+    if (cached is not null) return Results.Json(cached, AppJsonContext.Default.StopOutArray);
     try
     {
         var client = hf.CreateClient("subwayinfo");
         var url = string.IsNullOrWhiteSpace(route) ? "/api/stations" : $"/api/stations?line={Uri.EscapeDataString(route)}";
-        var items = await client.GetFromJsonAsync<SIStation[]>(url, json) ?? [];
+        var items = await client.GetFromJsonAsync(url, AppJsonContext.Default.SIStationArray) ?? [];
         var stops = items.Select(s => new StopOut(s.Id ?? "", s.Name ?? "", s.Lat, s.Lon, s.Lines ?? [])).ToArray();
-        await CacheSet(key, stops, 3600);
-        return Results.Json(stops, json);
+        await CacheSet(key, stops, 3600, AppJsonContext.Default.StopOutArray);
+        return Results.Json(stops, AppJsonContext.Default.StopOutArray);
     }
-    catch (Exception ex) { log.LogWarning(ex, "stops fetch failed"); return Results.Json(Array.Empty<StopOut>(), json); }
+    catch (Exception ex) { log.LogWarning(ex, "stops fetch failed"); return Results.Json(Array.Empty<StopOut>(), AppJsonContext.Default.StopOutArray); }
 });
 
 app.Run();
 
 // ── Output types ───────────────────────────────────────────────────
+record HealthOut(string Status, string Service);
 record RouteOut(string Id, string Name, string Color, string TextColor, string Type);
 record PredOut(string RouteId, string? RouteName, string StopId, string StopName, string Direction, string ArrivalTime, double MinutesAway, string Status);
 record AlertOut(string Id, string Severity, string Header, string? Description, string[] AffectedRoutes, SIActivePeriod? ActivePeriod, string UpdatedAt);
@@ -158,3 +160,16 @@ record Arrival(string? Line, string? Headsign, string? ArrivalTime, double Minut
 record SIAlert(string? Id, string? HeaderText, string? DescriptionText, string? Severity, string[]? AffectedLines, SIActivePeriod[]? ActivePeriods);
 record SIActivePeriod(string? Start, string? End);
 record SIStation(string? Id, string? Name, double Lat, double Lon, string[]? Lines);
+
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(HealthOut))]
+[JsonSerializable(typeof(RouteOut[]))]
+[JsonSerializable(typeof(PredOut[]))]
+[JsonSerializable(typeof(AlertOut[]))]
+[JsonSerializable(typeof(StopOut[]))]
+[JsonSerializable(typeof(ArrivalsResponse))]
+[JsonSerializable(typeof(SIAlert[]))]
+[JsonSerializable(typeof(SIStation[]))]
+internal partial class AppJsonContext : JsonSerializerContext
+{
+}

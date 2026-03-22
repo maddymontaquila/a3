@@ -25,31 +25,50 @@ OTEL_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "api-advisor")
 
 if OTEL_ENDPOINT:
-    from opentelemetry import trace
+    from opentelemetry import metrics, trace
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.instrumentation.redis import RedisInstrumentor
 
     resource = Resource.create({"service.name": SERVICE_NAME})
-    provider = TracerProvider(resource=resource)
+    tracer_provider = TracerProvider(resource=resource)
 
     cert_path = os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE")
     if cert_path and os.path.exists(cert_path):
         import grpc
         with open(cert_path, "rb") as f:
             creds = grpc.ssl_channel_credentials(root_certificates=f.read())
-        exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, credentials=creds)
+        trace_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, credentials=creds)
+        metric_exporter = OTLPMetricExporter(endpoint=OTEL_ENDPOINT, credentials=creds)
     elif OTEL_ENDPOINT.startswith("https"):
-        exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=False)
+        trace_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=False)
+        metric_exporter = OTLPMetricExporter(endpoint=OTEL_ENDPOINT, insecure=False)
     else:
-        exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True)
+        trace_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True)
+        metric_exporter = OTLPMetricExporter(endpoint=OTEL_ENDPOINT, insecure=True)
 
-    provider.add_span_processor(BatchSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
-    HTTPXClientInstrumentor().instrument()
+    tracer_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
+    meter_provider = MeterProvider(
+        resource=resource,
+        metric_readers=[PeriodicExportingMetricReader(metric_exporter)],
+    )
+    trace.set_tracer_provider(tracer_provider)
+    metrics.set_meter_provider(meter_provider)
+    HTTPXClientInstrumentor().instrument(
+        tracer_provider=tracer_provider,
+        meter_provider=meter_provider,
+    )
+    RedisInstrumentor().instrument(
+        tracer_provider=tracer_provider,
+        meter_provider=meter_provider,
+    )
 
     # Instrument OpenAI SDK for GenAI semantic conventions
     from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
@@ -73,16 +92,20 @@ app.add_middleware(
 )
 
 if OTEL_ENDPOINT:
-    FastAPIInstrumentor.instrument_app(app)
+    FastAPIInstrumentor.instrument_app(
+        app,
+        tracer_provider=tracer_provider,
+        meter_provider=meter_provider,
+    )
 
 # ---------------------------------------------------------------------------
 # Configuration helpers
 # ---------------------------------------------------------------------------
 
-CITY_ENV_MAP: dict[str, str] = {
-    "boston": "services__api-boston__http__0",
-    "nyc": "services__api-nyc__http__0",
-    "bart": "services__api-bart__http__0",
+CITY_ENV_MAP: dict[str, tuple[str, ...]] = {
+    "boston": ("services__api-boston__https__0",),
+    "nyc": ("services__api-nyc__https__0",),
+    "bart": ("services__api-bart__http__0",),
 }
 
 CACHE_TTL_SECONDS = 120  # 2 minutes
@@ -128,12 +151,15 @@ def _get_redis() -> redis.Redis | None:
             )
         else:
             host, port, password = "localhost", 6379, None
+            use_ssl = False
             for part in conn.split(","):
                 part = part.strip()
                 if "=" in part:
                     k, v = part.split("=", 1)
                     if k.lower() == "password":
                         password = v
+                    elif k.lower() == "ssl":
+                        use_ssl = v.lower() == "true"
                 elif ":" in part and host == "localhost":
                     h, p = part.rsplit(":", 1)
                     host = h
@@ -141,17 +167,25 @@ def _get_redis() -> redis.Redis | None:
                         port = int(p)
                     except ValueError:
                         pass
-            return redis.Redis(host=host, port=port, password=password, decode_responses=True, socket_connect_timeout=2)
+            return redis.Redis(
+                host=host,
+                port=port,
+                password=password,
+                decode_responses=True,
+                socket_connect_timeout=2,
+                ssl=use_ssl,
+                ssl_cert_reqs=None if use_ssl else None,
+            )
     except Exception:
         logger.warning("Failed to create Redis client", exc_info=True)
         return None
 
 
 def _city_base_url(city: str) -> str:
-    env_var = CITY_ENV_MAP.get(city)
-    if not env_var:
+    env_vars = CITY_ENV_MAP.get(city)
+    if not env_vars:
         raise HTTPException(status_code=400, detail=f"Unknown city: {city}")
-    url = os.environ.get(env_var, "")
+    url = next((os.environ.get(env_var, "") for env_var in env_vars if os.environ.get(env_var, "")), "")
     if not url:
         raise HTTPException(status_code=503, detail=f"Service URL not configured for {city}")
     return url.rstrip("/")
