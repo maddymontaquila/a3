@@ -3,21 +3,14 @@
 // Orchestrates a polyglot train tracker: Python, C#, Go, TypeScript
 
 import { ContainerLifetime, createBuilder } from './.modules/aspire.js';
-import { createFlushCommand } from './commands.js';
+import { withRedisFlushCommand } from './commands.js';
 
 const builder = await createBuilder();
 
 // ── Infrastructure ─────────────────────────────────────────────────
 const cache = await builder.addRedis('cache')
   .withLifetime(ContainerLifetime.Persistent);
-
-await cache.withCommand('clear-cache', 'Clear Cache', createFlushCommand(cache), {
-  commandOptions: { 
-    iconName: 'Delete', 
-    description: 'Flush all cached transit data', 
-    confirmationMessage: 'Are you sure you want to flush all cached data?' 
-  }
-});
+await withRedisFlushCommand(cache);
 
 const openai = await builder.addOpenAI('openai');
 const chatModel = await openai.addModel('chat', 'gpt-4o-mini');
@@ -35,47 +28,37 @@ const mbtaApiKey = await builder
 // 🐍 Boston / MBTA — Python (FastAPI + Uvicorn)
 const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:app')
   .withUv()
-  .withReference(cache)
-  .withEnvironmentParameter('MBTA_API_KEY', mbtaApiKey)
-  .waitFor(cache);
+  .withReference(cache).waitFor(cache)
+  .withEnvironment('MBTA_API_KEY', mbtaApiKey);
 
 // 🔷 NYC / MTA — C# file-based minimal API
 const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/api-nyc.cs')
-  .withReference(cache)
-  .waitFor(cache);
+  .withReference(cache).waitFor(cache);
 
 // 🦫 BART / Bay Area — Go (stdlib net/http)
 const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run', '.'])
   .withHttpEndpoint({ env: 'PORT' })
   .withDeveloperCertificateTrust(true)
   .withOtlpExporter()
-  .withReference(cache)
-  .waitFor(cache);
-
-const bostonEndpoint = await boston.getEndpoint('http');
-const nycEndpoint = await nyc.getEndpoint('https');
-const bartEndpoint = await bart.getEndpoint('http');
+  .withReference(cache).waitFor(cache);
 
 // ── GenAI Route Advisor — Python + OpenAI ──────────────────────────
 const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'main:app')
   .withUv()
-  .withReference(cache)
+  .withReference(cache).waitFor(cache)
   .withReference(chatModel)
-  .withEnvironment('OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT', 'true')
   .withReference(boston)
   .withReference(nyc)
-  .withEnvironment('services__api-bart__http__0', bartEndpoint)
-  .waitFor(cache);
+  .withEnvironment('services__api-bart__http__0', await bart.getEndpoint('http'))
+  .withEnvironment('OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT', 'true');
 
 // ── Frontend — Vite + React + TypeScript ───────────────────────────
-const advisorEndpoint = await advisor.getEndpoint('http');
-
 await builder.addViteApp('frontend', './frontend')
   .withHttpsEndpoint({ env: 'PORT', port: 5173 })
   .withHttpsDeveloperCertificate()
   .withReference(boston)
   .withReference(nyc)
   .withReference(advisor)
-  .withEnvironment('services__api-bart__http__0', bartEndpoint);
+  .withEnvironment('services__api-bart__http__0', await bart.getEndpoint('http'));
 
 await builder.build().run();
