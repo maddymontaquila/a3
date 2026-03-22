@@ -9,38 +9,63 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # --- OpenTelemetry ---
 _otel_instrumentor = None
+_otel_tracer_provider = None
+_otel_meter_provider = None
 if _otlp := os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
     try:
-        from opentelemetry import trace
+        from opentelemetry import metrics, trace
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.instrumentation.redis import RedisInstrumentor
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        provider = TracerProvider(resource=Resource.create(
-            {"service.name": os.environ.get("OTEL_SERVICE_NAME", "api-boston")}))
+        resource = Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", "api-boston")})
+        _otel_tracer_provider = TracerProvider(resource=resource)
         cert = os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE")
         if cert and os.path.exists(cert):
             import grpc
             with open(cert, "rb") as f:
-                exporter = OTLPSpanExporter(endpoint=_otlp,
-                    credentials=grpc.ssl_channel_credentials(root_certificates=f.read()))
+                creds = grpc.ssl_channel_credentials(root_certificates=f.read())
+            trace_exporter = OTLPSpanExporter(endpoint=_otlp, credentials=creds)
+            metric_exporter = OTLPMetricExporter(endpoint=_otlp, credentials=creds)
         else:
-            exporter = OTLPSpanExporter(endpoint=_otlp, insecure=not _otlp.startswith("https"))
-        provider.add_span_processor(BatchSpanProcessor(exporter))
-        trace.set_tracer_provider(provider)
-        HTTPXClientInstrumentor().instrument()
+            insecure = not _otlp.startswith("https")
+            trace_exporter = OTLPSpanExporter(endpoint=_otlp, insecure=insecure)
+            metric_exporter = OTLPMetricExporter(endpoint=_otlp, insecure=insecure)
+        _otel_tracer_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
+        _otel_meter_provider = MeterProvider(
+            resource=resource,
+            metric_readers=[PeriodicExportingMetricReader(metric_exporter)],
+        )
+        trace.set_tracer_provider(_otel_tracer_provider)
+        metrics.set_meter_provider(_otel_meter_provider)
+        HTTPXClientInstrumentor().instrument(
+            tracer_provider=_otel_tracer_provider,
+            meter_provider=_otel_meter_provider,
+        )
+        RedisInstrumentor().instrument(
+            tracer_provider=_otel_tracer_provider,
+            meter_provider=_otel_meter_provider,
+        )
         _otel_instrumentor = FastAPIInstrumentor()
     except Exception:
-        logging.exception("OpenTelemetry setup failed — continuing without tracing")
+        logging.exception("OpenTelemetry setup failed — continuing without telemetry")
 
 # --- App ---
 app = FastAPI(title="Boston MBTA Transit API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 if _otel_instrumentor:
-    _otel_instrumentor.instrument_app(app)
+    _otel_instrumentor.instrument_app(
+        app,
+        tracer_provider=_otel_tracer_provider,
+        meter_provider=_otel_meter_provider,
+    )
 
 MBTA_BASE = "https://api-v3.mbta.com"
 MBTA_KEY = os.environ.get("MBTA_API_KEY")

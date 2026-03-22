@@ -8,12 +8,13 @@ dependencies = [
     "uvicorn[standard]",
     "httpx",
     "openai",
-"opentelemetry-instrumentation-openai-v2",
+    "opentelemetry-instrumentation-openai-v2",
     "redis",
     "opentelemetry-distro",
     "opentelemetry-exporter-otlp-proto-grpc",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-httpx",
+    "opentelemetry-instrumentation-redis",
 ]
 
 [project.scripts]

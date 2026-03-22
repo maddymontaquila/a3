@@ -38,6 +38,8 @@ A real-time train tracker demo showcasing [Aspire 13.2](https://aspire.dev) at A
 
 ```bash
 # Set your API keys
+# Register for an MBTA developer account and request a key at
+# https://www.mbta.com/developers/v3-api
 export Parameters__mbta_api_key=your-mbta-key
 export Parameters__openai_openai_apikey=your-openai-key
 
@@ -49,7 +51,7 @@ The Aspire Dashboard opens automatically with all services visible.
 
 ### API Keys
 
-- **MBTA**: Free at [api-v3.mbta.com](https://api-v3.mbta.com/)
+- **MBTA**: Register for a developer account and request a key at [mbta.com/developers/v3-api](https://www.mbta.com/developers/v3-api)
 - **BART**: Uses public demo key (built-in)
 - **OpenAI**: Required for the route advisor feature
 
