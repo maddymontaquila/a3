@@ -1,0 +1,1 @@
+// Empty file on purpose to make `aspire restore` work

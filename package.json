@@ -1,21 +1,15 @@
 {
-  "name": "aspire-apphost",
+  "name": "a3-workspace",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "app"
+  ],
   "scripts": {
-    "start": "aspire run",
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "deploy": "aspire deploy"
-  },
-  "dependencies": {
-    "redis": "^5.11.0",
-    "vscode-jsonrpc": "^8.2.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "nodemon": "^3.1.11",
-    "tsx": "^4.19.0",
-    "typescript": "^5.3.0"
+    "build": "npm run build -w @a3/commands && npm run build -w a3-app",
+    "start": "npm run build -w @a3/commands && npm run start -w a3-app",
+    "start:app": "npm run build -w @a3/commands && npm run start -w a3-app"
   }
 }

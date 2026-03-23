@@ -1,0 +1,13 @@
+{
+  "appHost": {
+    "path": "apphost.ts",
+    "language": "typescript/nodejs"
+  },
+  "sdk": {
+    "version": "13.2.0"
+  },
+  "channel": "staging",
+  "packages": {
+    "Aspire.Hosting.Redis": "13.2.0"
+  }
+}

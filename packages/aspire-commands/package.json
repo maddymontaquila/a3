@@ -1,0 +1,27 @@
+{
+  "name": "@a3/commands",
+  "version": "0.1.0",
+  "description": "Reusable TypeScript extensions for Aspire TypeScript apphosts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "aspire.config.json"
+  ],
+  "scripts": {
+    "restore": "aspire restore",
+    "prebuild": "npm run restore",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "redis": "^5.11.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "preserveSymlinks": true
+  },
+  "include": ["apphost.ts", ".modules/**/*.ts"],
+  "exclude": ["node_modules"]
+}
