@@ -37,8 +37,7 @@ const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:a
 
 // 🔷 NYC / MTA — C# file-based minimal API
 const nyc = await builder.addCSharpApp('api-nyc', './api-nyc/api-nyc.cs')
-  .withReference(cache).waitFor(cache)
-  .publishAsDockerFile();
+  .withReference(cache).waitFor(cache);
 
 // 🦫 BART / Bay Area — Go (stdlib net/http)
 const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run', '.'])

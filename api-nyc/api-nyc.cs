@@ -1,4 +1,5 @@
 #!/usr/bin/env dotnet run
+#:property PublishAot=false
 #:package Microsoft.Extensions.Http.Resilience@*
 #:package Microsoft.Extensions.ServiceDiscovery@*
 #:package OpenTelemetry.Exporter.OpenTelemetryProtocol@*
