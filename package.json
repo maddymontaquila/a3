@@ -5,7 +5,8 @@
   "scripts": {
     "start": "aspire run",
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "deploy": "aspire deploy"
   },
   "dependencies": {
     "redis": "^5.11.0",
