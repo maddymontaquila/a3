@@ -1,6 +1,6 @@
 // A3 — All Aboard Aspire 🚂
 // TypeScript AppHost for AspireConf Keynote
-// Orchestrates a polyglot train tracker: Python, C#, Go, TypeScript
+// Orchestrates a polyglot train tracker: Python, C#, Go, Rust, TypeScript
 
 import { ContainerLifetime, createBuilder } from './.modules/aspire.js';
 import { withRedisFlushCommand } from './commands.js';
@@ -27,7 +27,14 @@ const mbtaApiKey = await builder
     { enableMarkdown: true }
   );
 
-// ── Transit APIs (3 languages!) ────────────────────────────────────
+const wmataApiKey = await builder
+  .addParameter('wmata-api-key', { secret: true })
+  .withDescription(
+    'Register for a WMATA developer account and request an API key at [developer.wmata.com](https://developer.wmata.com).',
+    { enableMarkdown: true }
+  );
+
+// ── Transit APIs (4 languages!) ────────────────────────────────────
 
 // 🐍 Boston / MBTA — Python (FastAPI + Uvicorn)
 const boston = await builder.addUvicornApp('api-boston', './api-boston', 'main:app')
@@ -47,6 +54,15 @@ const bart = await builder.addExecutable('api-bart', 'go', './api-bart', ['run',
   .withReference(cache).waitFor(cache)
   .publishAsDockerFile();
 
+// 🦀 DC / WMATA — Rust (Axum)
+const dc = await builder.addExecutable('api-dc', `${process.env.HOME}/.cargo/bin/cargo`, './api-dc', ['run'])
+  .withHttpEndpoint({ env: 'PORT' })
+  .withDeveloperCertificateTrust(true)
+  .withOtlpExporter()
+  .withReference(cache).waitFor(cache)
+  .withEnvironment('WMATA_API_KEY', wmataApiKey)
+  .publishAsDockerFile();
+
 // ── GenAI Route Advisor — Python + OpenAI ──────────────────────────
 const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'main:app')
   .withUv()
@@ -55,6 +71,7 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
   .withReference(boston)
   .withReference(nyc)
   .withEnvironment('API_BART_HTTP', await bart.getEndpoint('http'))
+  .withEnvironment('API_DC_HTTP', await dc.getEndpoint('http'))
   .withEnvironment('OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT', 'true');
 
 // ── Frontend — Vite for dev, YARP gateway for prod ─────────────────
@@ -64,7 +81,8 @@ const frontend = await builder.addViteApp('frontend', './frontend')
   .withReference(boston)
   .withReference(nyc)
   .withReference(advisor)
-  .withEnvironment('API_BART_HTTP', await bart.getEndpoint('http'));
+  .withEnvironment('API_BART_HTTP', await bart.getEndpoint('http'))
+  .withEnvironment('API_DC_HTTP', await dc.getEndpoint('http'));
   
 const ec = await builder.executionContext.get();
 if (!(await ec.isRunMode.get())) {
@@ -72,6 +90,7 @@ if (!(await ec.isRunMode.get())) {
   const bostonEndpoint = await boston.getEndpoint('http');
   const nycEndpoint = await nyc.getEndpoint('http');
   const bartEndpoint = await bart.getEndpoint('http');
+  const dcEndpoint = await dc.getEndpoint('http');
 
   // In production, YARP serves static assets and proxies API routes
   await builder.addYarp('gateway')
@@ -83,6 +102,7 @@ if (!(await ec.isRunMode.get())) {
       (await yarp.addRouteFromEndpoint('/api/boston/{**catch-all}', bostonEndpoint)).withTransformPathRemovePrefix('/api/boston');
       (await yarp.addRouteFromEndpoint('/api/nyc/{**catch-all}', nycEndpoint)).withTransformPathRemovePrefix('/api/nyc');
       (await yarp.addRouteFromEndpoint('/api/bart/{**catch-all}', bartEndpoint)).withTransformPathRemovePrefix('/api/bart');
+      (await yarp.addRouteFromEndpoint('/api/dc/{**catch-all}', dcEndpoint)).withTransformPathRemovePrefix('/api/dc');
       (await yarp.addRouteFromEndpoint('/api/advisor/{**catch-all}', advisorEndpoint)).withTransformPathRemovePrefix('/api/advisor');
     });
 }

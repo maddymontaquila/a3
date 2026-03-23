@@ -1,5 +1,5 @@
 // Common transit data types shared across all city APIs
-// All 3 APIs (Boston, NYC, BART) normalize to these shapes
+// All 4 APIs (Boston, NYC, BART, DC) normalize to these shapes
 
 export interface TransitRoute {
   id: string;
@@ -39,7 +39,7 @@ export interface Stop {
 }
 
 export interface City {
-  id: "boston" | "nyc" | "bart";
+  id: "boston" | "nyc" | "bart" | "dc";
   name: string;
   description: string;
   apiUrl: string;

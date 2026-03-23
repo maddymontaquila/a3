@@ -36,3 +36,4 @@ aspire-output/
 
 # Redis
 dump.rdb
+.playwright-cli/

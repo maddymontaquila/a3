@@ -11,6 +11,7 @@ const proxyTargets = {
   '/api/boston': getServiceTarget('boston'),
   '/api/nyc': getServiceTarget('nyc'),
   '/api/bart': getServiceTarget('bart'),
+  '/api/dc': getServiceTarget('dc'),
   '/api/advisor': getServiceTarget('advisor'),
 }
 

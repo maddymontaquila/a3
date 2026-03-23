@@ -1,10 +1,11 @@
 import type { TransitRoute, Prediction, ServiceAlert, Stop } from '../types/transit';
 
-type CityId = 'boston' | 'nyc' | 'bart';
+type CityId = 'boston' | 'nyc' | 'bart' | 'dc';
 
 const BOSTON_API = '/api/boston';
 const NYC_API = '/api/nyc';
 const BART_API = '/api/bart';
+const DC_API = '/api/dc';
 const ADVISOR_API = '/api/advisor';
 
 function getBaseUrl(city: CityId): string {
@@ -12,6 +13,7 @@ function getBaseUrl(city: CityId): string {
     case 'boston': return BOSTON_API;
     case 'nyc': return NYC_API;
     case 'bart': return BART_API;
+    case 'dc': return DC_API;
   }
 }
 

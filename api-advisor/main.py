@@ -121,6 +121,7 @@ CITY_ENV_MAP: dict[str, tuple[str, ...]] = {
     "boston": ("API_BOSTON_HTTPS", "API_BOSTON_HTTP"),
     "nyc": ("API_NYC_HTTPS", "API_NYC_HTTP"),
     "bart": ("API_BART_HTTPS", "API_BART_HTTP"),
+    "dc": ("API_DC_HTTPS", "API_DC_HTTP"),
 }
 
 CACHE_TTL_SECONDS = 120  # 2 minutes

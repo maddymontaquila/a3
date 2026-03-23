@@ -4,12 +4,14 @@ const CITIES: City[] = [
   { id: 'boston', name: 'Boston', description: 'MBTA Subway', apiUrl: '' },
   { id: 'nyc', name: 'NYC', description: 'MTA Subway', apiUrl: '' },
   { id: 'bart', name: 'BART', description: 'Bay Area Rapid Transit', apiUrl: '' },
+  { id: 'dc', name: 'DC', description: 'WMATA Metro', apiUrl: '' },
 ];
 
 const CITY_EMOJI: Record<string, string> = {
   boston: '🦞',
   nyc: '🗽',
   bart: '🌉',
+  dc: '🏛️',
 };
 
 interface CitySelectorProps {

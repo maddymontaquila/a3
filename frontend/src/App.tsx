@@ -19,6 +19,7 @@ function App() {
     boston: { routeId: null, stopId: null },
     nyc: { routeId: null, stopId: null },
     bart: { routeId: null, stopId: null },
+    dc: { routeId: null, stopId: null },
   });
 
   const current = perCity[city];
