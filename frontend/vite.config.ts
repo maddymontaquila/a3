@@ -2,8 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 function getServiceTarget(serviceName: string): string | undefined {
-  return process.env[`API_${serviceName}_HTTPS`]
-    ?? process.env[`API_${serviceName}_HTTP`]
+  const name = serviceName.toUpperCase()
+  return process.env[`API_${name}_HTTPS`]
+    ?? process.env[`API_${name}_HTTP`]
 }
 
 const proxyTargets = {

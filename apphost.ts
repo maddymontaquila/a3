@@ -54,7 +54,7 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
 
 // ── Frontend — Vite + React + TypeScript ───────────────────────────
 await builder.addViteApp('frontend', './frontend')
-  .withHttpsEndpoint({ env: 'PORT', port: 5173 })
+  .withHttpsEndpoint({ env: 'PORT', port: 5174 })
   .withHttpsDeveloperCertificate()
   .withReference(boston)
   .withReference(nyc)
