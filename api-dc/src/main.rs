@@ -497,7 +497,7 @@ fn init_telemetry() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "api_dc=info,tower_http=info".into());
+        .unwrap_or_else(|_| "api_dc=info,tower_http=info,opentelemetry=info".into());
 
     let fmt_layer = tracing_subscriber::fmt::layer().compact();
 
