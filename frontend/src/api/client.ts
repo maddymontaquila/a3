@@ -2,16 +2,10 @@ import type { TransitRoute, Prediction, ServiceAlert, Stop } from '../types/tran
 
 type CityId = 'boston' | 'nyc' | 'bart';
 
-// API URLs injected by Vite define from Aspire service discovery
-declare const __API_BOSTON__: string;
-declare const __API_NYC__: string;
-declare const __API_BART__: string;
-declare const __API_ADVISOR__: string;
-
-const BOSTON_API = typeof __API_BOSTON__ !== 'undefined' ? __API_BOSTON__ : 'http://localhost:5180';
-const NYC_API = typeof __API_NYC__ !== 'undefined' ? __API_NYC__ : 'https://localhost:5181';
-const BART_API = typeof __API_BART__ !== 'undefined' ? __API_BART__ : 'http://localhost:5182';
-const ADVISOR_API = typeof __API_ADVISOR__ !== 'undefined' ? __API_ADVISOR__ : 'http://localhost:5183';
+const BOSTON_API = '/api/boston';
+const NYC_API = '/api/nyc';
+const BART_API = '/api/bart';
+const ADVISOR_API = '/api/advisor';
 
 function getBaseUrl(city: CityId): string {
   switch (city) {

@@ -1,24 +1,36 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Aspire injects service URLs as env vars
-const bostonApi = process.env['services__api-boston__https__0'] || 'http://localhost:5180'
-const nycApi = process.env['services__api-nyc__https__0'] || 'https://localhost:5181'
-const bartApi = process.env['services__api-bart__http__0'] || 'http://localhost:5182'
-const advisorApi = process.env['services__api-advisor__https__0'] || 'http://localhost:5183'
+function getServiceTarget(serviceName: string): string | undefined {
+  return process.env[`API_${serviceName}_HTTPS`]
+    ?? process.env[`API_${serviceName}_HTTP`]
+}
 
-console.log('[vite] Boston:', bostonApi, '| NYC:', nycApi, '| BART:', bartApi, '| Advisor:', advisorApi)
+const proxyTargets = {
+  '/api/boston': getServiceTarget('boston'),
+  '/api/nyc': getServiceTarget('nyc'),
+  '/api/bart': getServiceTarget('bart'),
+  '/api/advisor': getServiceTarget('advisor'),
+}
+
+const proxy = Object.fromEntries(
+  Object.entries(proxyTargets).flatMap(([path, target]) =>
+    target
+      ? [[path, {
+          target,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (requestPath: string) =>
+            requestPath === path ? '/' : requestPath.slice(path.length),
+        }]]
+      : []
+  )
+)
 
 export default defineConfig({
   plugins: [react()],
-  define: {
-    // Inject API URLs as global constants at build time
-    __API_BOSTON__: JSON.stringify(bostonApi),
-    __API_NYC__: JSON.stringify(nycApi),
-    __API_BART__: JSON.stringify(bartApi),
-    __API_ADVISOR__: JSON.stringify(advisorApi),
-  },
   server: {
     port: parseInt(process.env.PORT || '5173'),
+    proxy,
   },
 })

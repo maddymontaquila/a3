@@ -31,6 +31,7 @@ Thumbs.db
 
 # Aspire
 .aspire/logs/
+aspire-output/
 *.log
 
 # Redis

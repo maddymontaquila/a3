@@ -49,7 +49,7 @@ const advisor = await builder.addUvicornApp('api-advisor', './api-advisor', 'mai
   .withReference(chatModel)
   .withReference(boston)
   .withReference(nyc)
-  .withEnvironment('services__api-bart__http__0', await bart.getEndpoint('http'))
+  .withEnvironment('API_BART_HTTP', await bart.getEndpoint('http'))
   .withEnvironment('OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT', 'true');
 
 // ── Frontend — Vite + React + TypeScript ───────────────────────────
@@ -59,6 +59,6 @@ await builder.addViteApp('frontend', './frontend')
   .withReference(boston)
   .withReference(nyc)
   .withReference(advisor)
-  .withEnvironment('services__api-bart__http__0', await bart.getEndpoint('http'));
+  .withEnvironment('API_BART_HTTP', await bart.getEndpoint('http'));
 
 await builder.build().run();

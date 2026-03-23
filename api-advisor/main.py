@@ -118,9 +118,9 @@ if OTEL_ENDPOINT:
 # ---------------------------------------------------------------------------
 
 CITY_ENV_MAP: dict[str, tuple[str, ...]] = {
-    "boston": ("services__api-boston__https__0",),
-    "nyc": ("services__api-nyc__https__0",),
-    "bart": ("services__api-bart__http__0",),
+    "boston": ("API_BOSTON_HTTPS", "API_BOSTON_HTTP"),
+    "nyc": ("API_NYC_HTTPS", "API_NYC_HTTP"),
+    "bart": ("API_BART_HTTPS", "API_BART_HTTP"),
 }
 
 CACHE_TTL_SECONDS = 120  # 2 minutes
