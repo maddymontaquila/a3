@@ -80,10 +80,10 @@ if (!(await ec.isRunMode.get())) {
     .withExternalHttpEndpoints()
     .withHostPort({ port: 8080 })
     .withConfiguration(async (yarp) => {
-      (await yarp.addRouteFromEndpoint('/api/boston/{**catch-all}', bostonEndpoint)).withTransformPathRemovePrefix('/api/boston');
-      (await yarp.addRouteFromEndpoint('/api/nyc/{**catch-all}', nycEndpoint)).withTransformPathRemovePrefix('/api/nyc');
-      (await yarp.addRouteFromEndpoint('/api/bart/{**catch-all}', bartEndpoint)).withTransformPathRemovePrefix('/api/bart');
-      (await yarp.addRouteFromEndpoint('/api/advisor/{**catch-all}', advisorEndpoint)).withTransformPathRemovePrefix('/api/advisor');
+      await yarp.addRouteFromEndpoint('/api/boston/{**catch-all}', bostonEndpoint).withTransformPathRemovePrefix('/api/boston');
+      await yarp.addRouteFromEndpoint('/api/nyc/{**catch-all}', nycEndpoint).withTransformPathRemovePrefix('/api/nyc');
+      await yarp.addRouteFromEndpoint('/api/bart/{**catch-all}', bartEndpoint).withTransformPathRemovePrefix('/api/bart');
+      await yarp.addRouteFromEndpoint('/api/advisor/{**catch-all}', advisorEndpoint).withTransformPathRemovePrefix('/api/advisor');
     });
 }
 await builder.build().run();
